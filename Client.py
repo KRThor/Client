@@ -640,7 +640,7 @@ class cameraRTSP(threading.Thread):
 
                         SendingImage = []
                         LabelCheck_Value = True
-                        if Socket_main.nowModel == "MODEL1" or Socket_main.nowModel == "MODEL2" or Socket_main.nowModel == "MODEL3" or Socket_main.nowModel == "MODEL4" or Socket_main.nowModel == "MODEL5" or Socket_main.nowModel == "MODEL6" or Socket_main.nowModel == "MODEL7" or Socket_main.nowModel == "MODEL8" or Socket_main.nowModel == "MODEL9" or Socket_main.nowModel == "MODEL10" or Socket_main.nowModel == "MODEL11" or Socket_main.nowModel == "MODEL12" or Socket_main.nowModel == "MODEL13" or Socket_main.nowModel == "MODEL14" or Socket_main.nowModel == "MODEL15":
+                        if 'MODEL' in Socket_main.nowModel :
                             # 검증 결과 데이터 Print Up
                             print(f'[Result Report]')
                             print(f'[Part Result]')
@@ -984,6 +984,21 @@ class EfficientNetIMG:
             "MODEL13": [300, 300],
             "MODEL14": [300, 300],
             "MODEL15": [300, 300],
+            "MODEL16": [300, 300],
+            "MODEL17": [300, 300],
+            "MODEL18": [300, 300],
+            "MODEL19": [300, 300],
+            "MODEL20": [300, 300],
+            "MODEL21": [300, 300],
+            "MODEL22": [300, 300],
+            "MODEL23": [300, 300],
+            "MODEL24": [300, 300],
+            "MODEL25": [300, 300],
+            "MODEL26": [300, 300],
+            "MODEL27": [300, 300],
+            "MODEL28": [300, 300],
+            "MODEL29": [300, 300],
+            "MODEL30": [300, 300]
         }
 
         if LINE == 'SS8':
@@ -1003,7 +1018,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 4,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
             elif CodeSetup == 'CONE' :
                 self.EngraveCheckLimit = {
@@ -1021,7 +1051,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 4,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
 
         elif LINE == 'SS9':
@@ -1041,7 +1086,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 4,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
             elif CodeSetup == 'CONE' :
                 self.EngraveCheckLimit = {
@@ -1059,7 +1119,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 5,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
 
         elif LINE == 'SS11':
@@ -1079,7 +1154,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 6,
-                    'MODEL15' : 6
+                    'MODEL15' : 6,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
                 self.EngraveCheckLimit_101 = {
                     'MODEL1' : 2,
@@ -1096,7 +1186,22 @@ class EfficientNetIMG:
                     'MODEL12' : 2,
                     'MODEL13' : 2,
                     'MODEL14' : 2,
-                    'MODEL15' : 2
+                    'MODEL15' : 2,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
             elif CodeSetup == 'CONE' :
                 self.EngraveCheckLimit = {
@@ -1114,7 +1219,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 6,
                     'MODEL14' : 6,
-                    'MODEL15' : 6
+                    'MODEL15' : 6,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
 
         elif LINE == 'SS12':
@@ -1134,7 +1254,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 4,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
 
         elif LINE == 'SS13':
@@ -1154,7 +1289,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 4,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
             elif CodeSetup == 'CONE' :
                 self.EngraveCheckLimit = {
@@ -1172,7 +1322,22 @@ class EfficientNetIMG:
                     'MODEL12' : 4,
                     'MODEL13' : 4,
                     'MODEL14' : 4,
-                    'MODEL15' : 4
+                    'MODEL15' : 4,
+                    'MODEL16' : 4,
+                    'MODEL17' : 4,
+                    'MODEL18' : 4,
+                    'MODEL19' : 4,
+                    'MODEL20' : 4,
+                    'MODEL21' : 4,
+                    'MODEL22' : 4,
+                    'MODEL23' : 4,
+                    'MODEL24' : 4,
+                    'MODEL25' : 4,
+                    'MODEL26' : 4,
+                    'MODEL27' : 4,
+                    'MODEL28' : 4,
+                    'MODEL29' : 4,
+                    'MODEL30' : 4
                 }
 
         self.BadCheckCount = []  # part 1,2,3,4 (cropBox index 기준)
