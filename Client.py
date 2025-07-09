@@ -1,223 +1,93 @@
-# 24.02.26
-from ast import alias
+from multiprocessing import Queue as MQueue
+from multiprocessing import Process
 from datetime import datetime
-import os
-os.environ["GIT_PYTHON_REFRESH"] = "quiet"
+from tabulate import tabulate
+from queue import Queue
+import numpy as np
+import subprocess
+import py_compile
+import threading
 import traceback
-import logging
 import pickle
 import socket
-import copy
-import time
-import threading
-from queue import Queue
-from multiprocessing import Process
-from multiprocessing import Queue as MQueue
-from keras.preprocessing.image import img_to_array
-import efficientnet.tfkeras
-from tensorflow.keras.models import load_model
-import tensorflow.keras.backend as K
-# from pypylon import pylon
-import gxipy as gx  #갤럭시 카메라 모듈
-import numpy as np
-from object_detection.utils import label_map_util
-import cv2
-import imutils
-import math
-import tensorflow.compat.v1 as tf
-import gc
-import configparser
-import json
-import sys
-import git
 import shutil
+import stat
+import json
+import time
+import git
+import cv2
+import os
 
-try:
-    os.system("sudo ifmetric enp4s0 30000")
-    os.system("sudo ifmetric enp42s0 100")
-except:
-    pass
+from lib.log import LogManager
+from lib.galaxycamera import GalaxyCamera
+from lib.classification import Classification
+from lib.detection import Detection
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-if not os.path.exists("log"):
-    os.makedirs("log")
-
-nowtime = datetime.now().strftime("%Y_%m_%d")
-
-file_handler = logging.FileHandler(f"log/log_{nowtime}.log")
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-
-path = os.path.dirname(os.path.abspath(__file__)).split("/")
-print(path)
-LINE = path[-1].split('_')[2] # e.g. S11
-print(LINE)
-print(path[-1].split('_')[1])
-if path[-1]:
-    if path[-1].split('_')[1] == "0":
-        if "CUP" in path[-1]:
-            HOST = "192.168.0.100"
-            PORT = 9999
-            CodeSetup = "CUP"
-            ClientSetup = '104'
-            
-        else:
-            HOST = "192.168.0.110"
-            PORT = 9999
-            CodeSetup = "CONE"
-            ClientSetup = '114'
-        ClientName = "CLIENT0"
-        PickleSetup = "PICKLE0"
-        CompleteSignal = "COMP0"
-        BadtypeCount = 8
-    if path[-1].split('_')[1] == "1":
-        if "CUP" in path[-1]:
-            HOST = "192.168.0.100"
-            PORT = 9999
-            CodeSetup = "CUP"
-            ClientSetup = '101'
-        else:
-            HOST = "192.168.0.110"
-            PORT = 9999
-            CodeSetup = "CONE"
-            ClientSetup = '111'
-        ClientName = "CLIENT1"
-        PickleSetup = "PICKLE1"
-        CompleteSignal = "COMP1"
-        BadtypeCount = 7
-    if path[-1].split('_')[1] == "2":
-        if "CUP" in path[-1]:
-            HOST = "192.168.0.100"
-            PORT = 9999
-            CodeSetup = "CUP"
-            BadtypeCount = 9
-            ClientSetup = '102'
-        else:
-            HOST = "192.168.0.110"
-            PORT = 9999
-            CodeSetup = "CONE"
-            BadtypeCount = 9
-            ClientSetup = '112'
-        ClientName = "CLIENT2"
-        PickleSetup = "PICKLE2"
-        CompleteSignal = "COMP2"
-    if path[-1].split('_')[1] == "3":
-        if "CUP" in path[-1]:
-            HOST = "192.168.0.100"
-            PORT = 9999
-            CodeSetup = "CUP"
-            BadtypeCount = 13
-            ClientSetup = '103'
-        else:
-            HOST = "192.168.0.110"
-            PORT = 9999
-            CodeSetup = "CONE"
-            BadtypeCount = 10
-            ClientSetup = '113'
-        ClientName = "CLIENT3"
-        PickleSetup = "PICKLE3"
-        CompleteSignal = "COMP3"
-    if path[-1].split('_')[1] == "4":
-        if "CUP" in path[-1]:
-            HOST = "192.168.0.100"
-            PORT = 9999
-            CodeSetup = "CUP"
-            BadtypeCount = 11
-            ClientSetup = '105'
-        else:
-            HOST = "192.168.0.110"
-            PORT = 9999
-            CodeSetup = "CONE"
-            BadtypeCount = 11
-            ClientSetup = '115'
-        ClientName = "CLIENT4"
-        PickleSetup = "PICKLE4"
-        CompleteSignal = "COMP4"
-    if path[-1].split('_')[1] == "5":
-        if "CUP" in path[-1]:
-            HOST = "192.168.0.100"
-            PORT = 9999
-            CodeSetup = "CUP"
-            BadtypeCount = 1
-            ClientSetup = '100'
-        else:
-            HOST = "192.168.0.110"
-            PORT = 9999
-            CodeSetup = "CONE"
-            BadtypeCount = 12
-            ClientSetup = '116'
-        ClientName = "CLIENT5"
-        PickleSetup = "PICKLE5"
-        CompleteSignal = "COMP5"
-
-# LINE = "SS11"
-##testMode
-# testMode = True
-# if testMode == True:
-#     HOST = "192.168.50.53"
-#     PORT = 9999
-#     CodeSetup = "CUP"
-#     BadtypeCount = 8
-#     ClientSetup = '102'
-#     ClientName = "CLIENT2"
-#     PickleSetup = "PICKLE2"
-#     CompleteSignal = "COMP2"
-
-class SocketCommunication:
+class SocketServer:
+    # HOST = "192.168.0.100"
+    # PORT = 9999
+    HOST = "192.168.50.9"
+    PORT = 9999
+    
     def __init__(self):
-        self.inspectionSession = False
-        self.resultSession = False
-        self.nowModel = ""
-        self.ModelBackup = ""
-        # self.myCam = CamNumber
-        self.re_pickleRecvData = ''
+        self.host = self.HOST
+        self.port = self.PORT
+        self.client_socket = None
+        self.socket_connected = False
+        self.load_complete = False  # 모든 마스킹, 모델 로드 완료 여부
+        self.send_queue = Queue()
 
-    def connectTry(self):
-        try:
-            self.client_socket.close()
-        except:
-            pass
-        print("Notice : [Socket Connecting. wait please]")
-        logger.info(f"[Notice] 소켓 연결 시도 - {HOST}, {PORT}")
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect((HOST, PORT))
-        print("Notice : [Socket Connected]")
-        logger.info(f"[Notice] 소켓 연결 완료 - {HOST}, {PORT}")
-        msg = ClientName
-        self.myName = PickleSetup
-        self.client_socket.send((msg.ljust(20)).encode())
-        self.inspectionSession = False
-        self.resultSession = False
+        # 소켓 통신을 통해 변하는 변수
+        self.info_json = None
+        self.model_name = None
+        self.current_date = None
+        self.capture_signal_dict = {"origin": False, "ng": False, "inspection": False}
+        self.recent_origin_send_signal = True  # 최근 원본 이미지 전송 여부
 
-    def pickleLoad(self):
-        pass
-
-    def pickleSave(self):
-        try:
-            filepath = f"models/{EFFI.ProductData[Socket_main.loadModelIndex-1]}"
-
+    def connect_to_server(self):
+        """메인 서버 연결"""
+        while not self.socket_connected:
             try:
-                if not (os.path.isdir(filepath)):
-                    os.makedirs(os.path.join(filepath))
-            except OSError as e:
-                logger.info(f"Warning : 해당 문제로 인하여 에러가 발생 - {e}")
-                # pass
+                if self.client_socket:
+                    self.client_socket.close()
 
-            with open("{}/InsValue.pickle".format(filepath), "wb") as file:
-                pickle.dump(EFFI.ModelSetupList, file)
+                LM.log_print("[Socket] Attempting to connect to the server...")
+                self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.client_socket.connect((self.host, self.port))
+                self.socket_connected = True
+                LM.log_print("[Socket] Successfully connected to the server")
+            except:
+                LM.log_print(f"[Socket] Failed to connect to the server : {traceback.format_exc()}")
+                time.sleep(1)
 
-            print("피클파일 저장 완료 : ", filepath)
-        except Exception as ex:
-            logger.info(f"Warning : 피클파일 저장 에러 발생 - {ex}")
-
-    def ClientSocketSend(self, data, length=20):  # RESULT, OK, NG, 2463
-        if isinstance(data, str):
-            self.client_socket.send(data.ljust(length).encode())
-        else:
-            self.client_socket.send(data)
+    def send_thread(self): 
+        """데이터 전송 스레드"""
+        while True:
+            if not self.send_queue.empty():
+                type, data = self.send_queue.get()
+                try:
+                    if type == 'msg':
+                        data = data.encode() if isinstance(data, str) else data
+                        data_length = len(data)
+                        self.client_socket.sendall(data_length.to_bytes(4, byteorder='big'))
+                        self.client_socket.sendall(data)
+                        print(f"[Socket] {type} send complete!: {data}")
+                    elif type == 'image':
+                        image_pickle = pickle.dumps(data)
+                        length_bytes = len(image_pickle).to_bytes(4, byteorder='big')
+                        self.client_socket.sendall(length_bytes)
+                        self.client_socket.sendall(image_pickle)
+                        print(f"[Socket] image send complete!")
+                except :
+                    LM.log_print(f"[Socket] {type} send error: {traceback.format_exc()}")
+                    try:
+                        self.client_socket.close()
+                        self.socket_connected = False
+                    except:
+                        pass
+                    time.sleep(0.1)
+            else:
+                time.sleep(0.1)
 
     def recvall(self, sock, count):
         buf = b""
@@ -229,2081 +99,761 @@ class SocketCommunication:
             count -= len(newbuf)
         return buf
 
-    def retry_procedure(self):  # 프로그램 재실행 OH
-        text = '[ ★ ] 프로그램 재시작'
-        logger.info(text)
-        print(text)
-        python = sys.executable
-        os.execl(python, python, * sys.argv)
-
-    def make_safe_dir(self, dir):
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-
     def git_clone(self, git_url):
-        target_dir = os.getcwd()  # 현재 경로
-        self.make_safe_dir(target_dir)
-        git.Git(target_dir).clone(git_url)
-
-    def run(self):
-        # 키보드로 입력한 문자열을 서버로 전송하고
-        # 서버에서 에코되어 돌아오는 메시지를 받으면 화면에 출력
-        # quit를 입력할 때 까지 반복
-        while True:
-            try:
-                try:
-                    data = self.recvall(self.client_socket, 20)
-                except:
-                    logger.info(f'Client Socket Connection Error : {traceback.format_exc()}')
-                    time.sleep(1)
-
-                if data == None:
-                    break
-
-                try:
-                    recvDATA = data.decode().strip()
-                    # print('Received from the server :',repr(recvDATA))
-                except:
-                    recvDATA = ""
-
-                print("recvDATA : ", recvDATA)
-                logger.info(f"[Notice] Recv Data from Server : {recvDATA}")
-
-                if recvDATA == "REBOOT": # 컴퓨터 재실행 → 프로그램 재실행으로 변경
-                    logger.info("[Notice] Reboot Control Signal Recv")
-                    # self.retry_procedure() 
-                    os.system("sudo reboot")
-
-                elif recvDATA == "WAITTING":
-                    logger.info("[NOTICE] WAITTING Signal Recv (pass)")
-                    # self.inspectionSession = False
-                    # self.resultSession = False
-
-                elif recvDATA == "UPDATE":
-                    logger.info("[NOTICE] CODE UPDATE Signal Recv")
-                    print("[★] 코드 업데이트 진행")
-                    try :
-                        repo_name = f"Client"
-                        if os.path.exists('Client_.py'):         
-                            os.remove("Client_.py")     # 기존 백업 클라이언트 코드 삭제
-
-                        if os.path.exists('Client.py'): # 기존 클라이언트 백업         
-                            os.rename('Client.py', 'Client_.py') 
-                            
-                        git_url = f'https://github.com/KRThor/{repo_name}.git' # 코드 업데이트할 깃허브 주소
-                        self.git_clone(git_url) # 다운로드
-                        print("[★] 코드 다운로드")
-                        time.sleep(0.2)
-                        os.rename(f'{repo_name}/Client.py', 'Client.py') # 다운로드 받은 코드 경로 수정
-                        time.sleep(0.2)
-                        shutil.rmtree(repo_name) # 다운로드 받은 코드 제거 (파일 있으면 충돌로 에러나서 업데이트 후 삭제)
-                        print("[★] 폴더 제거")
-                        os.system('python compile_C.py')
-                        print("[★] 코드 컴파일")
-                        print('[★] 코드 업데이트 성공')
-                        logger.info(f"[Notice] 코드 업데이트 성공")
-                    except :
-                        print("[★] 코드 다운로드 실패")
-                        logger.info(f"[Notice] 코드 업데이트 실패")
-                        print(traceback.format_exc())
-
-
-                elif recvDATA == "START":
-                    if CTH.BypassMode == False:
-                        logger.info("[Notice] Inspection Start Signal Recv")
-                        CTH.qimageCount = 0
-                        CTH.Qimage = Queue()
-                        ODC.badSearchCheck = []
-                        EFFI.DetClassiResult = []
-                        EFFI.resultImageData = [None] * EFFI.PartCounting
-                        EFFI.Det_resultLabel = ['NG', 0]
-                        ODC.inspectionCheck = False
-                        self.inspectionSession = True
-                        EFFI.resultPartData = [0] * EFFI.PartCounting
-
-                        EFFI.BadCheckCount = [0] * EFFI.PartCounting
-                        EFFI.MissCount = 0
-                        EFFI.continuityDetectState = False
-                        EFFI.continuityDetectImage = None
-                        EFFI.LastBadImage = None
-                        # EFFI.Definition_Result = ''
-
-                        # '불량 유형' : 전송될 유형 숫자
-                        EFFI.CriticalProductImageDict = {'MISS' : None, 'ROLLER' : None, 'CRACK' : None, 'MIX' : None}
-                        # '불량 유형' : 이미지
-                        EFFI.CriticalProductResultDict = {'MISS' : [None, 0, 0, 0], 'ROLLER' : [None, 0, 0, 0], 'CRACK' : [None, 0, 0, 0], 'MIX' : [None, 0, 0, 0]}
-
-                        # 검증 스레드 실행
-                        t = threading.Thread(target=ODC.inspectionIMG)
-                        t.daemon = True
-                        t.start()
-                    else:
-                        logger.info(f"[Notice] Start Recv in Bypass")
-
-                elif recvDATA == "RESULTREQUEST":
-                    if CTH.BypassMode == False:
-                        logger.info("[Notice] Inspection Result Requast Signal Recv")
-                        self.inspectionSession = False
-                        self.resultSession = True
-                    else:
-                        logger.info(f"[Notice] Resultrequest Recv in Bypass")
-
-                elif "MODEL" in recvDATA:
-                    self.nowModel = recvDATA
-                    if self.ModelBackup != self.nowModel:
-                        ODC.ModelLoadComp = False
-                        self.ModelBackup = self.nowModel
-                        logger.info(f"[Notice] {self.nowModel} Loading Signal Recv")
-                        modelIndex = self.nowModel.replace("MODEL", "")
-                        self.loadModelIndex = int(modelIndex)
-                        EFFI.load_models(EFFI.ProductData[self.loadModelIndex-1])
-                        # OH
-                        # 외륜 104, 냬륜 111 각인 디텍션 모델 로드
-                        if (CodeSetup == 'CUP' and ClientName == "CLIENT0") or (CodeSetup == 'CONE' and ClientName == "CLIENT1") or (LINE == 'SS11' and CodeSetup == 'CUP' and ClientName == "CLIENT1" and (self.nowModel == 'MODEL8' or self.nowModel == 'MODEL7')): 
-                            EFFI.Det_load_models(EFFI.ProductData[self.loadModelIndex-1])
-                        #     EFFI.DetClassi_load_models(EFFI.ProductData[self.loadModelIndex-1])
-
-                        Socket_main.ClientSocketSend(CompleteSignal)
-                        ODC.ModelLoadComp = True
-                    else:
-                        print(f"[Notice] {self.nowModel} Loading Signal Recv, SameModel Setup (pass)")
-                        logger.info(f"[Notice] {self.nowModel} Loading Signal Recv, SameModel Setup (pass)")
-                        Socket_main.ClientSocketSend(CompleteSignal)
-                        ODC.ModelLoadComp = True
-
-                elif "SETTING" in recvDATA:
-                    logger.info("[Notice] Setting Data Requast Signal Recv")
-                    if ODC.ModelLoadComp == True:
-                        self.ClientSocketSend(self.myName)
-                        sendData = str(EFFI.ModelSetupList)
-                        self.ClientSocketSend(sendData, 500)
-
-                # 수동 상태에서 수치조절
-                elif "MPICKLE" in recvDATA: 
-                    if recvDATA[1:] == self.myName:
-                        print('[INFO] Manual mode setting data update')
-                        logger.info("[INFO] Manual mode setting data update")
-                        DataIndex = int(recvDATA[7:8])
-                        self.ClientSocketSend(f"DATAREQUEST{DataIndex}")
-                        pickleRecvData = self.recvall(self.client_socket, 500)
-                        pickleRecvData = pickleRecvData.decode("utf-8")
-                        EFFI.ModelSetupList = eval(pickleRecvData)
-                        print("수신받은 data : ", EFFI.ModelSetupList)
-                        EFFI.checkValueDictUpdate(EFFI.ModelSetupList)
-                        print("결과 data : ", EFFI.checkValueDict)
-                        self.pickleSave()
-                
-                # 자동 상태에서 수치조절
-                elif "APICKLE" in recvDATA: 
-                    if recvDATA[1:] == self.myName:
-                        print('[INFO] Auto mode setting data update')
-                        logger.info("[INFO] Auto mode setting data update")
-                        DataIndex = int(recvDATA[7:8])
-                        self.ClientSocketSend(f"DATAREQUEST{DataIndex}")
-                        self.re_pickleRecvData = self.recvall(self.client_socket, 500)
-                        self.re_pickleRecvData = self.re_pickleRecvData.decode("utf-8")
-                        EFFI.reload_setting = True
-
-                elif 'CAPORI' in recvDATA:
-                    if ClientSetup in recvDATA:
-                        if 'ON' in recvDATA:
-                            logger.info("[Notice] Capture(ORI) On Signal Recv")
-                            print("[Notice] Capture(ORI) On Signal Recv")
-                            CTH.CaptureMode_Ori = True
-                        elif 'OFF' in recvDATA:
-                            logger.info("[Notice] Capture(ORI) Off Signal Recv")
-                            print("[Notice] Capture(ORI) Off Signal Recv")
-                            CTH.CaptureMode_Ori = False
-                    else:
-                        pass
-                
-                elif 'CAPBAD' in recvDATA:
-                    if ClientSetup in recvDATA:
-                        if "ON" in recvDATA:
-                            logger.info("[Notice] Capture(NG) On Signal Recv")
-                            print("[Notice] Capture(NG) On Signal Recv")
-                            ODC.NgCaptureCheck = True
-                        elif "OFF" in recvDATA:
-                            logger.info("[Notice] Capture(NG) Off Signal Recv")
-                            print("[Notice] Capture(NG) Off Signal Recv")
-                            ODC.NgCaptureCheck = False
-                    else:
-                        pass
-
-                elif 'CAPINS' in recvDATA:
-                    if ClientSetup in recvDATA:
-                        if "ON" in recvDATA:
-                            logger.info("[Notice] Capture(PROCESS) On Signal Recv")
-                            print("[Notice] Capture(PROCESS) On Signal Recv")
-                            CTH.CaptureMode_Process = True
-                        elif "OFF" in recvDATA:
-                            logger.info("[Notice] Capture(PROCESS) Off Signal Recv")
-                            print("[Notice] Capture(PROCESS) Off Signal Recv")
-                            CTH.CaptureMode_Process = False
-                    else:
-                        pass
-
-                if 'BYPASS' in recvDATA:
-                    if ClientSetup in recvDATA:
-                        if 'ON' in recvDATA:
-                            logger.info("[Notice] Bypass On Signal Recv")
-                            print("[Notice] Bypass On Signal Recv")
-                            CTH.BypassMode = True
-                        elif 'OFF' in recvDATA:
-                            logger.info("[Notice] Bypass Off Signal Recv")
-                            print("[Notice] Bypass Off Signal Recv")
-                            CTH.BypassMode = False
-                    else:
-                        pass
-                
-                if 'PARAMETER' in recvDATA:
-                    EFFI.Parameter_Load()
-                    EFFI.SettingFile_Checker(EFFI.ProductData[Socket_main.loadModelIndex-1])
-
-            except Exception as ex:
-                logger.info(f"Warning : 소켓통신 프로세스 에러 발생 - {traceback.format_exc()}")
-                time.sleep(1)
-                raise
-
-
-class cameraRTSP(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.Qimage = Queue()
-        self.CaptureMode_Ori = self.BypassMode = self.CaptureMode_Process = False
-        self.imgSaveCount = 0
-        self.qimageCount = 0
-
-        basic_cam_path = 'CheckValue/basic_setting.ini'
-        alias = 'cam1'
-        self.name = alias
-        self.basic_cam_path = basic_cam_path
-        self.config = configparser.ConfigParser()
-        self.config.optionxform = str
-        self.config.read(basic_cam_path, encoding = 'utf-8')
-        self.setting_values = self.config['Setting']
-        self.basicsetting = self.config.items('Basic')[0]
-        self.valuesetting = self.config.items('Setting')
-        self.triggersetting = self.config.items('Trigger')[0][1]
-        self.allDone = False
-
-        # 2022-12-09 OH
-        self.gpu_is_available = True
-        self.remove_disk = False
-
-    def connect_cam(self, basicsetting, valuesetting, triggersetting):
-        reconnectCount = 0
-        while True:
-            try:
-                print('\n\n\n\nCamera Connect Try')
-                if basicsetting[0] == 'sn':
-                    self.device_manager = gx.DeviceManager()
-                    self.cam = self.device_manager.open_device_by_sn(basicsetting[1])
-                    # self.cam.UserSetDefault.set(gx.GxUserSetEntry.USER_SET0)
-                    # self.cam.TriggerMode.set(gx.GxSwitchEntry.OFF)
-                elif basicsetting[0] == 'ip':
-                    self.device_manager = gx.DeviceManager()
-                    self.cam = self.device_manager.open_device_by_ip(basicsetting[1])
-                for i in valuesetting:
-                    try:
-                        print(i[0], int(i[1]))
-                        eval(f'self.cam.{(i[0])}.set({int(i[1])})')
-                    except:
-                        print("[info] 세팅 불가능한 value", i[0])
-                self.cam.UserSetSelector.set(gx.GxUserSetEntry.USER_SET0)
-                self.cam.UserSetLoad.send_command()
-                if triggersetting.upper() == 'OFF':
-                    self.cam.TriggerMode.set(gx.GxSwitchEntry.OFF)
-                else: #TriggerMode ON
-                    self.cam.TriggerMode.set(gx.GxSwitchEntry.ON)
-                    self.cam.TriggerSource.set(gx.GxTriggerSourceEntry.SOFTWARE)
-                self.cam.stream_on()
-                print('Camera Connect Complete')
-                break
-            except:
-                reconnectCount+=1
-                print(f'Reconnect Count - {reconnectCount}')
-                print(traceback.format_exc())
-                time.sleep(1)
-
-    def stream_mode_on(self):
-        self.cam.TriggerMode.set(gx.GxSwitchEntry.OFF)
-        self.cam.stream_on()
-
-    def run(self):
-        while True:
-            CameraErrorCount = 0
-            count = 0
-            try:
-                self.connect_cam(self.basicsetting, self.valuesetting, self.triggersetting)
-                while True:
-                    Ftime = time.time()
-
-                    raw_image = self.cam.data_stream[0].get_image()
-                    count += 1
-                    if raw_image is None:
-                        print("Getting image failed.")
-                        CameraErrorCount += 1
-                        logger.info(f"Getting image failed. {count}Frame / {CameraErrorCount}Count")
-                        logger.info(traceback.format_exc())
-                        if CameraErrorCount >= 3:
-                            self.cam.close_device()
-                            logger.info(f"Getting image failed Check Over. {count}Frame / {CameraErrorCount}Count")
-                            break
-                        else:
-                            continue
-
-                    rgb_image = raw_image.convert("RGB")
-                    if rgb_image is None:
-                        print("Image Convert Error")
-                        CameraErrorCount += 1
-                        logger.info(f"Image Convert Error. {count}Frame / {CameraErrorCount}Count")
-                        logger.info(traceback.format_exc())
-                        if CameraErrorCount >= 3:
-                            self.cam.close_device()
-                            logger.info(f"Image Convert Error Check Over. {count}Frame / {CameraErrorCount}Count")
-                            break
-                        else:
-                            continue
-
-                    numpy_image = rgb_image.get_numpy_array()
-                    if numpy_image is None:
-                        print("To Cv2 Image Error")
-                        CameraErrorCount += 1
-                        logger.info(f"To Cv2 Image Error. {count}Frame / {CameraErrorCount}Count")
-                        logger.info(traceback.format_exc())
-                        if CameraErrorCount >= 3:
-                            self.cam.close_device()
-                            logger.info(f"To Cv2 Image Error Check Over. {count}Frame / {CameraErrorCount}Count")
-                            break
-                        else:
-                            continue
-                    CameraErrorCount = 0
-                    # print(count, 'Frame : ', time.time() - Ftime)
-
-                    if Socket_main.inspectionSession == True:
-                        # ImageContinueCount += 1
-                        # if ImageContinueCount <= 3:
-                        #     continue
-                        # img = cv2.imread('test.jpg')
-
-                        self.qimageCount += 1
-
-                        if self.qimageCount <= 4: # 최초 이미지 버리기
-                            continue
-
-                        if CodeSetup == 'CONE' and ClientName == 'CLIENT4':
-                            if self.qimageCount % 3 == 1 :
-                                continue
-
-                        self.Qimage.put(numpy_image)
-
-                        # print(f"검사 사진 저장 - {self.qimageCount-4}장") # 최초 이미지 버리기
-
-                        if self.CaptureMode_Ori == True:
-                            now = datetime.now()
-                            year = str(now.year).zfill(4)
-                            month = str(now.month).zfill(2)
-                            day = str(now.day).zfill(2)
-                            hour = str(now.hour).zfill(2)
-                            minute = str(now.minute).zfill(2)
-                            second = str(now.second).zfill(2)
-                            mic = str(now.microsecond).zfill(6)
-                            path = f"Capture/{year}_{month}_{day}/{Socket_main.nowModel}/"
-                            inputFileName = f'{year}_{month}_{day}_{hour}_{minute}{second}{mic}.jpg'
-                            MQ.put((path, inputFileName, numpy_image))
-
-                        if self.qimageCount > 50:
-                            logger.info(f"[Notice] Camera Working Over Session")
-                            Socket_main.inspectionSession = False
-                            # Socket_main.resultSession = True
-                        # Socket_main.inspectionSession = False
-
-                    if Socket_main.resultSession == True:
-                        # ImageContinueCount = 0
-                        checkCount = 0
-                        while True:
-                            if ODC.inspectionCheck == True:
-                                print("[Notice] Inspection Session Break Check")
-                                logger.info("[Notice] Inspection Session Break Check")
-                                break
-                            print("inspection is not finish")
-                            time.sleep(0.1)
-                            checkCount += 1
-                            if checkCount >= 50:
-                                print("[Notice] Force Break ResultSession")
-                                logger.info("[Notice] Force Break ResultSession")
-                                ODC.inspectionCheck = False
-                                break
-
-                        Socket_main.resultSession = False
-
-                        SendingImage = []
-                        LabelCheck_Value = True
-                        if 'MODEL' in Socket_main.nowModel :
-                            # 검증 결과 데이터 Print Up
-                            print(f'[Result Report]')
-                            print(f'[Part Result]')
-                            for i in range(EFFI.PartCounting):
-                                Limit = EFFI.checkValueDict[f"PART{i+1}"][2]
-                                print(f"PART - {i+1} / Count : {EFFI.resultPartData[i]} / Limit : {Limit}")
-                            print(f'[Nomal Product Continuity Result] - {EFFI.continuityDetectState}')
-                            for CriticalLabel in EFFI.CriticalProductList:
-                                if CriticalLabel in EFFI.CriticalProductSetup[ClientName]:
-                                    Limit = EFFI.checkValueDict[CriticalLabel][1]
-                                    Limit2 = EFFI.checkValueDict[CriticalLabel][2]
-                                    print(F'[Critical Bad Product Result] - ({CriticalLabel})\n [Continuity Result] - {EFFI.CriticalProductResultDict[CriticalLabel][0]}\n [Continuity Count] - {EFFI.CriticalProductResultDict[CriticalLabel][2]} / Limit - {Limit}\n [Critical Total Count] - {EFFI.CriticalProductResultDict[CriticalLabel][3]} / Limit - {Limit2}')
-                            if (CodeSetup == "CUP" and ClientName == "CLIENT0" and (Socket_main.nowModel in EFFI.Det_ModelSetup['CUP'])) or (CodeSetup == "CONE" and ClientName == "CLIENT1" and (Socket_main.nowModel in EFFI.Det_ModelSetup['CONE'])) or (LINE == 'SS11' and CodeSetup == "CUP" and ClientName == "CLIENT1" and (Socket_main.nowModel == "MODEL7" or Socket_main.nowModel == "MODEL8")):
-                                if EFFI.Det_Running == True:
-                                    print(f'[Engrave Detection Result]\nEFFI.Det_resultLabel > {EFFI.Det_resultLabel}')
-
-                            NgCheck = True  # True - 불량 체킹 이력 없음, False - 불량 체킹 이력 있음
-
-                            #중대 불량 연속검사 체크
-                            for CriticalLabel in EFFI.CriticalProductList:
-                                if CriticalLabel in EFFI.CriticalProductSetup[ClientName]:
-                                    if EFFI.CriticalProductResultDict[CriticalLabel][0] == False:
-                                        print(f'[X] 중대불량 연속검사 발생 - ({CriticalLabel} (불량)) / 연속검사 횟수 - {EFFI.CriticalProductResultDict[CriticalLabel][2]} / 제한 - {EFFI.checkValueDict[CriticalLabel][1]}')
-                                        ODC.badSearchCheck.append(EFFI.CriticalProductType[CriticalLabel])
-                                        SendingImage.append(EFFI.CriticalProductImageDict[CriticalLabel])
-                                        NgCheck = False
-                                        break
-                                    else:
-                                        print(f'[✓] 중대불량 연속검사 양품 - ({CriticalLabel} (양품)) / 연속검사 횟수 - {EFFI.CriticalProductResultDict[CriticalLabel][2]} / 제한 - {EFFI.checkValueDict[CriticalLabel][1]}')
-                                        pass
-                            
-                            #중대 불량 횟수검사 체크
-                            if NgCheck == True:
-                                for CriticalLabel in EFFI.CriticalProductList:
-                                    if CriticalLabel in EFFI.CriticalProductSetup[ClientName]:
-                                        if EFFI.CriticalProductResultDict[CriticalLabel][3] >= EFFI.checkValueDict[CriticalLabel][2]:
-                                            print(f'[X] 중대불량 횟수검사 초과 발생 ({CriticalLabel} (불량)) / 총 검출 횟수 - {EFFI.CriticalProductResultDict[CriticalLabel][3]} / 제한 - {EFFI.checkValueDict[CriticalLabel][2]}')
-                                            ODC.badSearchCheck.append(EFFI.CriticalProductType[CriticalLabel])
-                                            SendingImage.append(EFFI.CriticalProductImageDict[CriticalLabel])
-                                            NgCheck = False
-                                            break
-                                        else:
-                                            print(f'[✓] 중대불량 횟수검사 양품 - ({CriticalLabel} (양품)) / 총 검출 횟수 - {EFFI.CriticalProductResultDict[CriticalLabel][3]} / 제한 - {EFFI.checkValueDict[CriticalLabel][2]}')
-                                            pass
-
-                            #각인 검사 체크
-                            if NgCheck == True:
-                                if (CodeSetup == "CUP" and ClientName == "CLIENT0" and (Socket_main.nowModel in EFFI.Det_ModelSetup['CUP'])) or (CodeSetup == "CONE" and ClientName == "CLIENT1" and (Socket_main.nowModel in EFFI.Det_ModelSetup['CONE'])) or (LINE == 'SS11' and CodeSetup == "CUP" and ClientName == "CLIENT1" and (Socket_main.nowModel == "MODEL7" or Socket_main.nowModel == "MODEL8")) :
-                                    if EFFI.Det_Running == True:
-                                        if EFFI.Det_resultLabel[0] == 'NG': # 각인 분류 만 패스
-                                            for i in EFFI.DetClassiResult :
-                                                print("*", i)
-                                            print(f"[X] 각인 누락 불량 - 검출된 갯수 > {str(EFFI.Det_resultLabel[1])}")
-                                            # logger.info(f'[Notice] 디텍션 라벨검증 불량 - {str(EFFI.Det_resultLabel[1])}detect')
-                                            # ODC.badSearchCheck.append(BadtypeCount)
-                                            if EFFI.Det_resultLabel[1] == 0:
-                                                LabelCheck_Value = False
-                                            else:
-                                                LabelCheck_Value = None
-                                            # SendingImage.append(EFFI.resultOKImageData)
-
-                                            # 1112 각인 분류 패스
-                                            # elif EFFI.Det_resultLabel[0] == 'ClassiNG': # 각인 분류 만 패스
-                                            #     for i in EFFI.DetClassiResult :
-                                            #         print("*", i)
-                                            #     print("[★] 각인 분류 모양 불량")
-                                            #     logger.info('[Notice] 각인 분류 불량 판정')
-                                            #     LabelCheck_Value = False
-                                            #     SendingImage.append(EFFI.resultOKImageData)
-                                            SendingImage.append(EFFI.resultOKImageData)
-                                            NgCheck = False
-
-                                        else:
-                                            # for i in EFFI.DetClassiResult:
-                                            #     print("*", i)
-                                            EFFI.DetClassiResult = []
-                                            print(f"[✓] 각인 양품")
-                                            # logger.info(f'[Notice] 디텍션 라벨검증 양품')
-
-                            #일반 파트별 연속검사 체크
-                            if NgCheck == True:
-                                if EFFI.continuityDetectState == True:
-                                    print("[X] 일반 파트별 연속검사 불량 발생")
-                                    ODC.badSearchCheck.append(BadtypeCount)
-                                    SendingImage.append(EFFI.continuityDetectImage)
-                                    NgCheck = False
-                                else:
-                                    print("[✓] 일반 파트별 연속검사 양품")
-
-                            #일반 파트별 횟수검사 체크
-                            if NgCheck == True:
-                                for i in range(EFFI.PartCounting):
-                                    if EFFI.resultPartData[i] >= EFFI.checkValueDict[f"PART{i+1}"][2]:
-                                        Limit = EFFI.checkValueDict[f"PART{i+1}"][2]
-                                        print(f"[X] PART - {i+1} 횟수검사 불량 / 검출 횟수 : {EFFI.resultPartData[i]} / 제한 : {Limit}")
-                                        ODC.badSearchCheck.append(BadtypeCount)
-                                        SendingImage.append(EFFI.resultImageData[i])
-                                        NgCheck = False
-                                        break
-                                    else:
-                                        Limit = EFFI.checkValueDict[f"PART{i+1}"][2]
-                                        print(f"[✓] PART - {i+1} 횟수검사 (양품) / 검출 횟수 : {EFFI.resultPartData[i]} / 제한 : {Limit}")
-                                        continue
-
-                            #일반 파트 + 중대 불량 총 검출 횟수검사 체크
-                            if NgCheck == True:
-                                TotalNgCounting = 0
-                                for i in range(EFFI.PartCounting):
-                                    TotalNgCounting += EFFI.resultPartData[i]
-                                for CriticalLabel in (EFFI.CriticalProductList):
-                                    if CriticalLabel in EFFI.CriticalProductSetup[ClientName]:
-                                        TotalNgCounting += EFFI.CriticalProductResultDict[CriticalLabel][3]
-                                if TotalNgCounting >= EFFI.checkValueDict["TOTAL"][0]:
-                                    print(f"[X] 전체 불량 검출 횟수 초과 (불량) / 전체 불량 검출 횟수 > {TotalNgCounting}개 / 총 검사 제한 > {EFFI.checkValueDict['TOTAL'][0]}")
-                                    ODC.badSearchCheck.append(BadtypeCount)
-                                    SendingImage.append(EFFI.LastBadImage)
-                                    NgCheck = False
-                                else:
-                                    print(f"[✓] 전체 불량 검출 횟수 미달 (양품) / 전체 불량 검출 횟수 > {TotalNgCounting} / 총 검사 제한 > {EFFI.checkValueDict['TOTAL'][0]}")
-
-                            if NgCheck == True:
-                                SendingImage.append(EFFI.resultOKImageData)
-                        else:
-                            SendingImage.append(EFFI.resultOKImageData)
-                        # OH
-                        YouCanSeeImage = SendingImage[0].copy()
-                        (reY, reX, reS, reS2, reP) = EFFI.axisC[Socket_main.nowModel]
-                        YouCanSeeImage = YouCanSeeImage[reY : reY + reS, reX : reX + reS2].copy()
-
-                        if LINE == 'SS9' or LINE == 'SS13':
-                            if CodeSetup == 'CUP':
-                                if ClientName == "CLIENT2" or ClientName == "CLIENT3":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_CLOCKWISE)
-
-                                elif ClientName == "CLIENT4":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-                            else:
-                                if ClientName == "CLIENT2" or ClientName == "CLIENT5":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_CLOCKWISE)
-
-                                elif ClientName == "CLIENT3" or ClientName == "CLIENT4":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                        else: 
-                            if CodeSetup == 'CUP':
-                                if ClientName == "CLIENT2" or ClientName == "CLIENT3":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-                                elif ClientName == "CLIENT4":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_CLOCKWISE)
-
-                            else:
-                                if ClientName == "CLIENT2" or ClientName == "CLIENT5":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-                                elif ClientName == "CLIENT3" or ClientName == "CLIENT4":
-                                    YouCanSeeImage = cv2.rotate(YouCanSeeImage, cv2.ROTATE_90_CLOCKWISE)
-
-                        (O_H, O_W) = YouCanSeeImage.shape[:2]
-
-                        if len(ODC.badSearchCheck) > 0:  # 불량 이면
-                            cv2.rectangle(YouCanSeeImage, (0, 0), (O_W, O_H), (0, 0, 255), 10)
-                            SendingImage[0] = YouCanSeeImage.copy()
-                            # cv2.imwrite("SendingImage.jpg", SendingImage[0])
-
-                        elif len(ODC.badSearchCheck) == 0:  # 양품 이면
-                            cv2.rectangle(YouCanSeeImage, (0, 0), (O_W, O_H), (0, 255, 0), 10)
-                            SendingImage[0] = YouCanSeeImage.copy()
-                            # cv2.imwrite("SendingImage.jpg", SendingImage[0])
-                        (O_H_D, O_W_D) = SendingImage[0].shape[:2]
-                        if LabelCheck_Value == True:
-                            pass
-                        elif LabelCheck_Value == None:
-                            ODC.badSearchCheck.append(BadtypeCount)
-                            cv2.putText(SendingImage[0], 'Detection Result False', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2)
-                            cv2.rectangle(SendingImage[0], (0, 0), (O_W_D, O_H_D), (0, 0, 255), 10)
-                        else:
-                            logger.info('[Notice] Engrave Result NG - Count 0')
-                            ODC.badSearchCheck.append(EFFI.CriticalProductType["ENGRAVE"])
-                            cv2.putText(SendingImage[0], 'Detection Result False', (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2)
-                            cv2.rectangle(SendingImage[0], (0, 0), (O_W_D, O_H_D), (0, 0, 255), 10)
-                        # if ClientName in ['CLIENT2', 'CLIENT3', 'CLIENT4', 'CLIENT5']:
-                        #     cv2.putText(SendingImage[0], f'{EFFI.Definition_Result}', (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
-                        # else:
-                        #     cv2.putText(SendingImage[0], f'{EFFI.Definition_Result}', (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 3)
-
-                        # 결과 데이터 송신
-                        ###################
-                        # ODC.badSearchCheck = [0,1,2,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-                        ###################
-
-                        # 결과 데이터 송신
-                        msg = "0"
-                        # img = cv2.imread('test1.jpg')
-
-                        for i in range(1, 14):
-                            if i in ODC.badSearchCheck:
-                                msg = msg + "1"
-                            else:
-                                msg = msg + "0"
-
-                        print('Sending Image Count - ', len(SendingImage))
-
-                        # GPU 사용 확인 2022-12-09 OH
-                        gpu = tf.test.is_gpu_available()
-                        if gpu == True :
-                            self.gpu_is_available = True
-                            osg = f"{ClientName}GPUOK" 
-                            Socket_main.ClientSocketSend(osg)
-                        else : 
-                            self.gpu_is_available = False
-                            print("[★] GPU 미사용")
-                            osg = f"{ClientName}GPUNG"
-                            Socket_main.ClientSocketSend(osg)
-                            
-                        msg2 = f"{ClientName}RESULT"
-                        Socket_main.ClientSocketSend(msg2)
-                        print('Sending Result Data - ', msg)
-                        Socket_main.ClientSocketSend(msg, 100)
-                        print(f"[Notice] Final Inspection Result Send to Server : {msg}")
-                        logger.info(f"[Notice] Final Inspection Result Send to Server : {msg}")
-
-                        EFFI.ok_send_count_list = [0] * EFFI.PartCounting
-                        EFFI.ng_send_count_list = [0] * EFFI.PartCounting
-                        EFFI.ED_ok_send_count = 0
-                        EFFI.ED_ng_send_count = 0
-                        
-                        # Definition_SendData = [ClientName, EFFI.Definition_Result]
-                        # pickleDefPickle = pickle.dumps(Definition_SendData)
-                        # Socket_main.ClientSocketSend(str(len(pickleDefPickle)).ljust(20).encode())
-                        # Socket_main.ClientSocketSend(pickleDefPickle)
-                        # print(f'[Notice] Final Definition Result Send to Server : {Definition_SendData}')
-                        # logger.info(f'[Notice] Final Definition Result Send to Server : {Definition_SendData}')
-
-                        pickleData = pickle.dumps(SendingImage)
-                        Socket_main.client_socket.send(str(len(pickleData)).ljust(20).encode())
-                        Socket_main.client_socket.send(pickleData)
-                        Socket_main.resultSession = False
-                        print(f"[Notice] Final Inspection ImageData Send to Server")
-                        logger.info(f"[Notice] Final Inspection ImageData Send to Server")
-
-                        # 용량 확인 2022-12-09 OH
-                        result = self.get_disk_space()
-                        if result > 80 :
-                            self.remove_disk = True
-
-                        self.allDone = True  # 모든 세션 완료 되었는지 확인하는 변수
-
-                        if (self.allDone == True) and (EFFI.ReloadSignal == True):  # 모델 재로딩 완료, 검사 끝나면 모델 스위칭
-                            EFFI.model = EFFI.ReModel
-                            EFFI.lb = EFFI.Relb
-
-                            try:
-                                del EFFI.ReModel
-                            except:
-                                pass
-                            try:
-                                EFFI.Relb
-                            except:
-                                pass
-                            try:
-                                gc.collect()
-                            except:
-                                pass
-                            try:
-                                K.clear_session()
-                            except:
-                                pass
-                            
-                            EFFI.ReloadSignal = False
-                            print("[★] 새로운 모델로 변경 완료!")
-
-                        if (self.allDone == True) and (EFFI.reload_setting == True):  # 모델 재로딩 완료, 검사 끝나면 모델 스위칭
-                            EFFI.ModelSetupList = eval(Socket_main.re_pickleRecvData)
-                            print("수신받은 data : ", EFFI.ModelSetupList)
-                            EFFI.checkValueDictUpdate(EFFI.ModelSetupList)
-                            print("결과 data : ", EFFI.checkValueDict)
-                            Socket_main.pickleSave()
-
-                            EFFI.reload_setting = False
-                            print("[★] 새로운 세팅으로 변경 완료!")
-
-            except:
-                print(traceback.format_exc())
-                self.cam.close_device()
-                logger.info(f'Galaxy Camera Process Error - {traceback.format_exc()}')
-
-    def get_disk_space(self): # 2022-12-09 OH
-        st = os.statvfs("/")
-
-        # 총, 남은 디스크 용량 계산
-        total = st.f_blocks * st.f_frsize
-        free = st.f_bavail * st.f_frsize
-
-        now_total = (total/1024/1024/1024)
-        now_free = (free/1024/1024/1024)
-        result = 100 - ((now_free / now_total) * 100)
+        """깃허브 코드 다운로드"""
+        try:
+            target_dir = os.getcwd()  # 현재 경로
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir)
+            git.Git(target_dir).clone(git_url)
+        except:
+            LM.log_print(f"[Git] Failed to clone repository: {traceback.format_exc()}")
         
-        return result
+    def load_info_json(self):
+        """모델 정보 로드"""
+        try:
+            self.detection_use = self.info_json['detection_use']  # 각인 디텍션 검사 실시 여부
+            self.detection_frame = self.info_json['detection_frame']  # 각인 디텍션 검사 프레임
+            self.capture_signal_dict['origin'] = self.info_json['origin_image_capture']  # 원본 이미지 캡처 여부
+            self.capture_signal_dict['ng'] = self.info_json['ng_image_capture']  # 불량 이미지 캡처 여부
+            self.capture_signal_dict['inspection'] = self.info_json['inspection_image_capture']  # 검사 이미지 캡처 여부
+            self.show_coord = self.info_json['show_coord']  # 화면 출력용 좌표
+            self.detection_coords = self.info_json['detection_coords']  # 각인 디텍션 검사 좌표
+            self.ok_engrave = self.info_json['ok_engrave']  # 정상 각인 개수
+            self.inspection_frame = self.info_json['inspection_frame']  # 검사 프레임 수
+            self.inspection_coords = self.info_json['inspection_coords']  # 검사 좌표
+            self.critical_ng_list = self.info_json['critical_ng_list']  # 중대 불량 목록
+            self.label_ng_conditions = self.info_json['label_ng_conditions']  # 불량 판정 조건
+            self.json_label_list = self.info_json['label_ng_conditions'].keys()  # 불량 라벨 목록
+            LM.log_print(f"[Model] info_json loaded successfully")
+        except:
+            LM.log_print(f"[Model] Failed to load info_json: {traceback.format_exc()}")
 
-    def remove_forder(self): # OH
-        while True :
-            try : 
-                if self.remove_disk == True:
-                    if os.path.exists('Capture'):
-                        shutil.rmtree('Capture')
-                        self.CaptureMode = False
-                        print("[★] Capture 폴더 삭제")
+    def load_result_dict(self):
+        """검사 결과 딕셔너리 로드"""
+        HW.inspection_result_dict = {}
+        for part_name, values in self.inspection_coords.items():
+            HW.inspection_result_dict[part_name] = []
+        print(f"[LOADED] result_dict loaded successfully")
 
-                        result = self.get_disk_space()
-                        if result > 80 :
-                            if os.path.exists('NgCapture'):
-                                shutil.rmtree('NgCapture')
-                                print("[★] NgCapture 폴더 삭제")
-                        else : 
-                            pass
-                        
-                        self.remove_disk = False
-                else :
-                    time.sleep(0.5)
-            except :
-                print(f'{traceback.format_exc()}')
-                time.sleep(0.5)
+    def load_classification_mask(self):
+        """분류 마스크 로드"""
+        try:
+            # 검사 영역 및 마스크 로드
+            classi_mask_path_list = []
+            for part_name, values in self.inspection_coords.items():
+                classi_mask_path_list.append(f'mask/classification/{self.model_name}{values[0]}.png')
+            classi_mask_path_list = list(set(classi_mask_path_list))
 
-
-class EfficientNetIMG:
-    def __init__(self):
-        self.modelResizeDict = {
-            "MODEL1": [300, 300],
-            "MODEL2": [300, 300],
-            "MODEL3": [300, 300],
-            "MODEL4": [300, 300],
-            "MODEL5": [300, 300],
-            "MODEL6": [300, 300],
-            "MODEL7": [300, 300],
-            "MODEL8": [300, 300],
-            "MODEL9": [300, 300],
-            "MODEL10": [300, 300],
-            "MODEL11": [300, 300],
-            "MODEL12": [300, 300],
-            "MODEL13": [300, 300],
-            "MODEL14": [300, 300],
-            "MODEL15": [300, 300],
-            "MODEL16": [300, 300],
-            "MODEL17": [300, 300],
-            "MODEL18": [300, 300],
-            "MODEL19": [300, 300],
-            "MODEL20": [300, 300],
-            "MODEL21": [300, 300],
-            "MODEL22": [300, 300],
-            "MODEL23": [300, 300],
-            "MODEL24": [300, 300],
-            "MODEL25": [300, 300],
-            "MODEL26": [300, 300],
-            "MODEL27": [300, 300],
-            "MODEL28": [300, 300],
-            "MODEL29": [300, 300],
-            "MODEL30": [300, 300]
-        }
-
-        if LINE == 'SS8':
-            if CodeSetup == 'CUP' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 4,
-                    'MODEL3' : 5,
-                    'MODEL4' : 4,
-                    'MODEL5' : 8,
-                    'MODEL6' : 4,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 4,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-            elif CodeSetup == 'CONE' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 5,
-                    'MODEL3' : 4,
-                    'MODEL4' : 4,
-                    'MODEL5' : 4,
-                    'MODEL6' : 4,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 4,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-
-        elif LINE == 'SS9':
-            if CodeSetup == 'CUP' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 4,
-                    'MODEL3' : 6,
-                    'MODEL4' : 4,
-                    'MODEL5' : 4,
-                    'MODEL6' : 4,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 5,
-                    'MODEL11' : 6,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 4,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-            elif CodeSetup == 'CONE' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 5,
-                    'MODEL3' : 6,
-                    'MODEL4' : 6,
-                    'MODEL5' : 4,
-                    'MODEL6' : 4,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 5,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-
-        elif LINE == 'SS11':
-            if CodeSetup == 'CUP' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 4,
-                    'MODEL3' : 4,
-                    'MODEL4' : 4,
-                    'MODEL5' : 4,
-                    'MODEL6' : 5,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 6,
-                    'MODEL15' : 6,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-                self.EngraveCheckLimit_101 = {
-                    'MODEL1' : 2,
-                    'MODEL2' : 2,
-                    'MODEL3' : 2,
-                    'MODEL4' : 2,
-                    'MODEL5' : 2,
-                    'MODEL6' : 2,
-                    'MODEL7' : 2,
-                    'MODEL8' : 2,
-                    'MODEL9' : 2,
-                    'MODEL10' : 2,
-                    'MODEL11' : 2,
-                    'MODEL12' : 2,
-                    'MODEL13' : 2,
-                    'MODEL14' : 2,
-                    'MODEL15' : 2,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-            elif CodeSetup == 'CONE' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 4,
-                    'MODEL3' : 4,
-                    'MODEL4' : 4,
-                    'MODEL5' : 4,
-                    'MODEL6' : 4,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 5,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 6,
-                    'MODEL14' : 6,
-                    'MODEL15' : 6,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-
-        elif LINE == 'SS12':
-            if CodeSetup == 'CONE' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 5,
-                    'MODEL3' : 4,
-                    'MODEL4' : 4,
-                    'MODEL5' : 4,
-                    'MODEL6' : 4,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 4,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 4,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-
-        elif LINE == 'SS13':
-            if CodeSetup == 'CUP' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 4,
-                    'MODEL3' : 6,
-                    'MODEL4' : 5,
-                    'MODEL5' : 4,
-                    'MODEL6' : 6,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 6,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 4,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-            elif CodeSetup == 'CONE' :
-                self.EngraveCheckLimit = {
-                    'MODEL1' : 4,
-                    'MODEL2' : 4,
-                    'MODEL3' : 6,
-                    'MODEL4' : 5,
-                    'MODEL5' : 4,
-                    'MODEL6' : 5,
-                    'MODEL7' : 4,
-                    'MODEL8' : 4,
-                    'MODEL9' : 6,
-                    'MODEL10' : 4,
-                    'MODEL11' : 4,
-                    'MODEL12' : 4,
-                    'MODEL13' : 4,
-                    'MODEL14' : 4,
-                    'MODEL15' : 4,
-                    'MODEL16' : 4,
-                    'MODEL17' : 4,
-                    'MODEL18' : 4,
-                    'MODEL19' : 4,
-                    'MODEL20' : 4,
-                    'MODEL21' : 4,
-                    'MODEL22' : 4,
-                    'MODEL23' : 4,
-                    'MODEL24' : 4,
-                    'MODEL25' : 4,
-                    'MODEL26' : 4,
-                    'MODEL27' : 4,
-                    'MODEL28' : 4,
-                    'MODEL29' : 4,
-                    'MODEL30' : 4
-                }
-
-        self.BadCheckCount = []  # part 1,2,3,4 (cropBox index 기준)
-
-        self.SessionCheckList = ["PART1", "PART2", "PART3", "PART4", "PART5", "PART6"]
-        self.resultImageData = []
-        self.resultOKImageData = None
-        self.resultPartData = []
-        self.DetClassiResult = []
-        self.continuityDetectState = False  # 검사 결과 상태 확인
-        self.continuityDetectImage = None  # 해당 파트로 불량발생시 업데이트할 이미지
-        self.MissCount = 0
-        self.Det_resultLabel = ['NG', 0]
-        self.DetClassiImage = [] # 각인 분류 이미지 저장 공간
-        self.NgDetClassiCount = 0
-        self.PartCounting = 1
-        self.LastBadImage = None
-        # self.Definition_Result = ''
-        self.axisC = {}
-        self.cropBox = {}
-        self.Det_ModelSetup = {}
-        self.Det_Running = True
-        self.modelN = ''
-        self.ReloadSignal = False   # 모든 정보 재로드
-
-        self.reload_setting = False # 세팅 정보 재로드
-
-        self.ok_send_count_list = [0] * self.PartCounting
-        self.ng_send_count_list = [0] * self.PartCounting
-        self.ED_ok_send_count = 0
-        self.ED_ng_send_count = 0
-
-        # 중대불량 프로세스 추가
-        self.CriticalProductList = ['MISS', 'ROLLER', 'CRACK', 'MIX']
-        # classification 불량 유형
-        self.CriticalProductType = {'MISS' : 1, 'ROLLER' : 2, 'ENGRAVE' : 3, 'IDENTIFICATION' : 4, 'CRACK' : 5, 'MIX' : 6}
-        # '불량 유형' : 전송될 유형 숫자
-        self.CriticalProductImageDict = {'MISS' : None, 'ROLLER' : None, 'CRACK' : None, 'MIX' : None}
-        # '불량 유형' : 이미지
-        self.CriticalProductResultDict = {'MISS' : [None, 0, 0, 0], 'ROLLER' : [None, 0, 0, 0], 'CRACK' : [None, 0, 0, 0], 'MIX' : [None, 0, 0, 0]}
-        # '불량 유형' : [연속검출 유무 (False - 불량, None - 양품), 연속검사 카운팅(초기화), 연속검사 고점 카운팅(비초기화), 총 검출 횟수(비초기화)]
-        if CodeSetup == 'CONE':
-            self.CriticalProductSetup = {
-                'CLIENT0' : ['MIX'],
-                'CLIENT1' : ['MIX'],
-                'CLIENT2' : [],
-                'CLIENT3' : ['ROLLER', 'CRACK'],
-                'CLIENT4' : ['CRACK'],
-                'CLIENT5' : ['MIX']
-            }
-        else:
-            self.CriticalProductSetup = {
-                'CLIENT0' : ['MIX'],
-                'CLIENT1' : ['MIX'],
-                'CLIENT2' : ['MISS'],
-                'CLIENT3' : [],
-                'CLIENT4' : [],
-            }
-        
-        self.Parameter_Load()
-        self.ProductData = []
-        self.product_infoJson_Load()
-
-    def product_infoJson_Load(self):
-        if os.path.isfile('CheckValue/product_info.json'):
-            with open('CheckValue/product_info.json', 'r') as read_file:
-                ReadJsonData = json.load(read_file)
-            self.ProductData = ReadJsonData[LINE][CodeSetup][1]
-            print(self.ProductData)
-
-    def Parameter_Load(self):
-        if os.path.isfile('CheckValue/parameter.json'):
-            with open('CheckValue/parameter.json', 'r') as read_file:
-                ReadJsonData = json.load(read_file)
-            self.axisC = ReadJsonData["axisC"]
-            self.cropBox = ReadJsonData["cropBox"]
-            self.Det_ModelSetup = ReadJsonData["Det_ModelSetup"]
-            self.ClassiMasker = cv2.imread(f"ClassiMask/{CodeSetup}_{ClientName}_{self.modelN}.png")
-            self.SubClassiMask = cv2.imread(f"ClassiMask/{CodeSetup}_{ClientName}_{self.modelN}_sub.png")
-            try:
-                self.PartCounting = len(self.cropBox[Socket_main.nowModel])
-                self.ok_send_count_list = [0] * self.PartCounting
-                self.ng_send_count_list = [0] * self.PartCounting
-                self.reload_models(self.modelN)
-            except:
-                pass
-            logger.info('[Notice] Inspection Parameter Load Complete')
-            print(f'[Notice] Inspection Parameter Load Complete - {self.modelN}')
-
-            # print(f'axisC Load - {self.axisC}')
-            # print(f'cropBox Load - {self.cropBox}')
-            # print(f'Det_ModelSetup - {self.Det_ModelSetup}')
-        else:
-            logger.info('[Notice] Inspection Parameter Load False - Not File Found')
-            pass
-
-    def SettingFile_Checker(self, model_Number):
-        settingPath = f"models/{model_Number}/InsValue.pickle"
-        self.checkValueDict = {}
-        # PartCount = len(self.cropBox[Socket_main.nowModel])
-        if os.path.isfile(settingPath) == True:
-            modelCheckResult = pickle.loads(open(settingPath, "rb").read())
-            print("PART 갯수 : ", len(self.cropBox[Socket_main.nowModel]), "리스트 갯수 : ", len(modelCheckResult))
-            if (len(self.cropBox[Socket_main.nowModel])+len(self.CriticalProductSetup[ClientName])) != (len(modelCheckResult) - 1):
-                self.ModelSetupList = []
-                for i in range(len(self.cropBox[Socket_main.nowModel])):
-                    data = [f"PART{i+1}", [90, 2, 3]]
-                    self.ModelSetupList.append(data)
-                for i in range(len(self.CriticalProductSetup[ClientName])):
-                    self.ModelSetupList.append([f"{self.CriticalProductSetup[ClientName][i]}", [90, 2, 3]])
-                data = ["TOTAL", [2]]
-                self.ModelSetupList.append(data)
-
-                with open(settingPath, "wb") as f:
-                    pickle.dump(self.ModelSetupList, f)
-                print("파일 존재 / 새로 저장")
+            # 분류 마스크 로드
+            if classi_mask_path_list:
+                result = CL.load_mask(classi_mask_path_list)  # result: fail or {'status': 'success', 'main': image, 'sub': image}
+            
+                if result == 'fail':
+                    self.send_queue.put(('msg', 'load:classi_masking:fail'))
+                    self.load_complete = False
+                    raise Exception("Classification mask loading failed")
+                else:
+                    HW.mask_images['main'] = result.get('main')
+                    HW.mask_images['sub'] = result.get('sub')
+                    LM.log_print(f"[MASK] {self.model_name} Classification Mask Loaded")
             else:
-                self.ModelSetupList = copy.deepcopy(modelCheckResult)
-                print("기존 셋업 불러오기")
-        else:
-            self.ModelSetupList = []
-            for i in range(len(self.cropBox[Socket_main.nowModel])):
-                data = [f"PART{i+1}", [90, 2, 3]]
-                self.ModelSetupList.append(data)
-            for i in range(len(self.CriticalProductSetup[ClientName])):
-                self.ModelSetupList.append([f"{self.CriticalProductSetup[ClientName][i]}", [90, 2, 3]])
-            data = ["TOTAL", [2]]
-            self.ModelSetupList.append(data)
+                LM.log_print(f"[MASK] {self.model_name} Classification Mask path is empty")
+        except Exception as e:
+            raise
 
-            with open(settingPath, "wb") as f:
-                pickle.dump(self.ModelSetupList, f)
-            print("파일 미존재 / 새로 저장")
-
-        self.checkValueDictUpdate(self.ModelSetupList)
-        print(self.checkValueDict)
-
-    def load_models(self, model_number):
-        self.modelN = model_number
+    def load_detection_mask(self):
+        """디텍션 마스크 로드"""
         try:
-            del self.model
-        except:
-            pass
-        try:
-            self.lb
-        except:
-            pass
-        try:
-            gc.collect()
-        except:
-            pass
-        try:
-            K.clear_session()
-        except:
-            pass
-
-        logger.info("[Notice] Model Loading Start")
-        modelPath = f"models/{model_number}/model.hdf5"
-        picklePath = f"models/{model_number}/model.pickle"
-        
-        self.model = load_model(modelPath)    #########################################
-        self.lb = pickle.loads(open(picklePath, "rb").read())
-        # self.graph_classi = tf.get_default_graph()
-
-        self.SettingFile_Checker(model_number)
-
-        self.PartCounting = len(self.cropBox[Socket_main.nowModel])
-        self.ok_send_count_list = [0] * self.PartCounting
-        self.ng_send_count_list = [0] * self.PartCounting
-        try:
-            print(f"Masking File Load - ClassiMask/{CodeSetup}_{ClientName}_{model_number}.png")
-            self.ClassiMasker = cv2.imread(f"ClassiMask/{CodeSetup}_{ClientName}_{model_number}.png")
-            self.SubClassiMask = cv2.imread(f"ClassiMask/{CodeSetup}_{ClientName}_{model_number}_sub.png")
-        except:
-            print("Classi Masking File Is Nothing")
-
-        logger.info("[Notice] Model Loading Complete")
-        # test
-        logger.info("[Notice] Model Test Start")
-        testimg = cv2.imread("test.jpg")
-        self.inspection(testimg, True)
-        logger.info("[Notice] Model Test Complete")
-
-    def reload_models(self, model_number): # OH
-        try:
-            del self.ReModel
-        except:
-            pass
-        try:
-            self.lb
-        except:
-            pass
-        try:
-            gc.collect()
-        except:
-            pass
-        try:
-            K.clear_session()
-        except:
-            pass
-
-        logger.info("[Notice] Model Loading Start")
-        modelPath = f"models/{model_number}/model.hdf5"
-        picklePath = f"models/{model_number}/model.pickle"
-        
-        self.ReModel = load_model(modelPath)    #########################################
-        self.Relb = pickle.loads(open(picklePath, "rb").read())
-
-        self.SettingFile_Checker(model_number)
-        self.PartCounting = len(self.cropBox[Socket_main.nowModel])
-        self.ok_send_count_list = [0] * self.PartCounting
-        self.ng_send_count_list = [0] * self.PartCounting
-        try:
-            print(f"Masking File Load - ClassiMask/{CodeSetup}_{ClientName}_{model_number}.png")
-            self.ClassiMasker = cv2.imread(f"ClassiMask/{CodeSetup}_{ClientName}_{model_number}.png")
-            self.SubClassiMask = cv2.imread(f"ClassiMask/{CodeSetup}_{ClientName}_{model_number}_sub.png")
-        except:
-            print("Classi Masking File Is Nothing")
-
-        testimg = cv2.imread("test.jpg")
-        self.inspection(testimg, True)
-
-        logger.info("[Notice] Model reLoading Complete")
-        print("[★] 새로운 모델 준비 완료 ! ")
-
-        self.ReloadSignal = True # 모델 재로딩 완료 신호
-
-    # OH
-    def Det_load_models(self, model_number):
-        try:
-            model = tf.Graph()
-            model_path = f"models/frozen_inference_graph.pb"
-            label_path = f"models/classes.pbtxt"
-            with model.as_default():
-                # initialize the graph definition
-                graphDef = tf.GraphDef()
-
-                # load the graph from disk
-                with tf.gfile.GFile(model_path, "rb") as f:
-                    serializedGraph = f.read()
-                    graphDef.ParseFromString(serializedGraph)
-                    tf.import_graph_def(graphDef, name="")
-
-            labelMap = label_map_util.load_labelmap(label_path)
-            categories = label_map_util.convert_label_map_to_categories(
-                labelMap, max_num_classes= 8 ,
-                use_display_name=True)
-            self.categoryIdx = label_map_util.create_category_index(categories)
-
-            # create a session to perform inference
-            with model.as_default():
-                self.sess = tf.Session(graph=model)
-
-            # grab a reference to the input image tensor and the boxes
-            # tensor
-            self.imageTensor = model.get_tensor_by_name("image_tensor:0")
-            self.boxesTensor = model.get_tensor_by_name("detection_boxes:0")
-
-            # for each bounding box we would like to know the score
-            # (i.e., probability) and class label
-            self.scoresTensor = model.get_tensor_by_name("detection_scores:0")
-            self.classesTensor = model.get_tensor_by_name("detection_classes:0")
-            self.numDetections = model.get_tensor_by_name("num_detections:0")
-
-            logger.info("[Notice] Detection Model Loading Complete")
-            image = cv2.imread("Det_test.jpg")
-            logger.info("[Notice] Detection Model Test Start")
-            resultLabel, Checkindex, _ = self.Det_inspection(image, self.EngraveCheckLimit[Socket_main.nowModel], 1)
-            print(resultLabel, Checkindex)
-            logger.info("[Notice] Detection Model Test Complete")
-        except:
-            print(traceback.format_exc())
-            logger.info(f'[Error] ObjectDetection Model Load Error \n{traceback.format_exc()}')
-
-    # OH
-    def Det_inspection(self, image, boxlimit, frame):
-        try:
-            self.DetClassiImage = []
-            min_confidence = 0.7
-            (reY, reX, reH, reW, ModelType) = self.axisC[Socket_main.nowModel]
-
-            cropimg = image[reY:reY+reH, reX:reX+reW]
-            cv2.imwrite('Detection.jpg', cropimg)
-            output = cropimg.copy()
-            cropimg = cv2.imread('Detection.jpg')
-            # cropimg = cv2.resize(cropimg, dsize = (1024, 1024), interpolation = cv2.INTER_AREA)
+            det_mask_path = f'mask/detection/{self.model_name}.png'
+            result = DT.load_mask(det_mask_path)  # result: ('fail or success', 'mask_image')
             
-            classImage = cropimg.copy()
-            (H, W) = cropimg.shape[:2]
-            image_center = (W // 2, H // 2)
-            dummy_image = np.zeros( (H, W), dtype = np.uint8)
-
-            cropimg = cv2.cvtColor(cropimg, cv2.COLOR_BGR2RGB)
-            cropimg = np.expand_dims(cropimg, axis=0)
-
-            (boxes, scores, labels, N) = self.sess.run(
-            [self.boxesTensor, self.scoresTensor, self.classesTensor, self.numDetections],
-            feed_dict={self.imageTensor: cropimg})
-
-            boxes = np.squeeze(boxes)
-            scores = np.squeeze(scores)
-            labels = np.squeeze(labels)
-            
-            indexCount = 0 # oh
-            for (box, score, label) in zip(boxes, scores, labels):
-                # if the predicted probability is less than the minimum
-                # confidence, ignore it
-                if score < min_confidence:
+            if isinstance(result, str) and result == 'fail':
+                self.send_queue.put(('msg', 'load:det_masking:fail'))
+                self.load_complete = False
+                raise Exception("Detection mask loading failed")
+            else:
+                HW.mask_images['det'] = result
+                LM.log_print(f"[MASK] {self.model_name} Detection Mask Loaded")
+        except Exception as e:
+            raise
+    
+    def run(self):
+        while True:
+            time.sleep(0.01)
+            if not self.socket_connected:
+                self.connect_to_server()
+                
+            try:
+                header = self.recvall(self.client_socket, 4)
+                if not header:
+                    LM.log_print("[Socket] Header not received")
+                    self.socket_connected = False
                     continue
 
-                # scale the bounding box from the range [0, 1] to [W, H]
-                (startY, startX, endY, endX) = box
-                startX = int(startX * W)
-                startY = int(startY * H)
-                endX = int(endX * W)
-                endY = int(endY * H)
-
-                centerX = int(startX/2 + endX/2)
-                centerY = int(startY/2 + endY/2)
-
-                # draw the prediction on the output image
-                label = self.categoryIdx[label]
-                idx = int(label["id"])
-                showlabel = "{}:{:.2f}%".format(label["name"], score*100)
-
-                # 분류를 위한 회전 정렬
-                x, y = startX, startY
-                w, h = endX - startX, endY - startY
-                y2 = y + h
-                x2 = x + w
-
-                x = x - 25
-                y = y - 25
-                x2 = x2 + 25
-                y2 = y2 + 25
-
-                midX = startX + int((w)/2)
-                midY = startY + int((h)/2)
-                degree = math.degrees(math.atan2(-midY + image_center[1], midX - image_center[0]))  # 이미지의 중심을 사용하여 각도 계산
-
-                if x < 0: x = 0
-                if y < 0: y = 0
-
-                if y2 > classImage.shape[0] :
-                    y2 = classImage.shape[0]
-                if x2 > classImage.shape[1]:
-                    x2 = classImage.shape[1]
-                
-                crop = classImage[y : y2, x : x2]
-                crop = imutils.rotate(crop, -degree)
-                crop = cv2.resize(crop, dsize = (224, 224), interpolation = cv2.INTER_AREA)
-                # self.DetClassiImage.append(crop)
-                # cv2.imwrite('crop.jpg', crop)
-
-                now = datetime.now()
-                formatted_date = now.strftime('%Y_%m_%d')
-                formatted_time = now.strftime('%H_%M_%S')
-                mic = str(now.microsecond).zfill(6)
-
-                path = f"det_classi/{formatted_date}/{Socket_main.nowModel}"
-                inputFileName = f'{formatted_date}_{formatted_time}{mic}.jpg'
-                MQ.put((path, inputFileName, crop))
-
-                cv2.rectangle(dummy_image, (startX, startY), (endX, endY), (255, 255, 255), -1)
-                indexCount += 1 # oh
-
-            # _, dummy_image = cv2.threshold(dummy_image, 127, 255, cv2.THRESH_BINARY)
-            # conts = cv2.findContours(dummy_image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-            # conts = imutils.grab_contours(conts)
-
-            # indexCount = 0
-
-            # for idx, cont in enumerate(conts):
-            # 	indexCount += 1
+                data_length = int.from_bytes(header, 'big')
+                data = self.recvall(self.client_socket, data_length)
+                if not data:
+                    LM.log_print("[Socket] Data not received")
+                    self.socket_connected = False
+                    continue
             
-            if indexCount == boxlimit :  # 박스 수 4개 아니면 NG
-                # 분류 모델
-                # for i in range(indexCount):
-                #     Classilabel, Classiamount = self.DetClassi_inspection(self.DetClassiImage[i])
-                #     if 'NG' in Classilabel and Classiamount > 90:
-                #         print(" [★] 각인 분류 모델 불량 판정! ")
-                #         path = f"DetClassiNg/{Classilabel}"
-                #         self.NgDetClassiCount += 1
-                #         inputNum = "%05d" % self.NgDetClassiCount
-                #         MQ.put((path, "SaveImg_{}.jpg".format(inputNum), self.DetClassiImage[i]))
-                #         return "ClassiNG", indexCount
-                if self.ED_ok_send_count < 1 :
-                    msg = f"{ClientSetup}OKFRAME0OK"
-                    Socket_main.ClientSocketSend(msg)
-                    pickleData = pickle.dumps(output)
-                    Socket_main.client_socket.send(str(len(pickleData)).ljust(20).encode())
-                    Socket_main.client_socket.send(pickleData)
-                    self.ED_ok_send_count += 1
-                return "OK", indexCount, output
-            else :
-                if self.ED_ng_send_count < 2 :
-                    msg = f"{ClientSetup}NGFRAME0ED"
-                    Socket_main.ClientSocketSend(msg)
-                    pickleData = pickle.dumps(output)
-                    Socket_main.client_socket.send(str(len(pickleData)).ljust(20).encode())
-                    Socket_main.client_socket.send(pickleData)
-                    self.ED_ng_send_count += 1
-                return "NG", indexCount, output
+                try:
+                    recv_data = data.decode('utf-8').strip()
+                    # LM.log_print(f"[Socket] received data: {recv_data}")
 
-        except:
-            print('에러 발생으로 강제 불량 판정', traceback.format_exc()) # OH
-            logger.info(f'[Error] Detecton Error \n{traceback.format_exc()}')
-            return "NG", 99, image
-    
-    def DetClassi_load_models(self, model_number):
-        ClassimodelPath = f"models/{model_number}/Classi/model.hdf5"
-        ClassipicklePath = f"models/{model_number}/Classi/model.pickle"
-        self.Classimodel = load_model(ClassimodelPath)
-        self.Classilb = pickle.loads(open(ClassipicklePath, 'rb').read())
-        print("[★] 디텍션 - 분류 모델 로드 완료")
-        testimg = cv2.imread("test.jpg")
-        self.DetClassi_inspection(testimg)
-        logger.info("[Notice] Detection - Classification Model Loading Complete")
-
-    def DetClassi_inspection(self, img):
-        try:
-            now = datetime.now()
-            nowDatetime = now.strftime("%H-%M-%S")
-            nowDatetime = nowDatetime.split('-')
-            filename = nowDatetime[0]+nowDatetime[1]+nowDatetime[2]
-            img = cv2.resize(img, (224, 224))
-            output = img.copy()
-            img = img.astype("float") / 255.0
-            img = img_to_array(img)
-            img = np.expand_dims(img, axis=0)
-
-            proba = self.Classimodel.predict(img)[0]
-            idx = np.argmax(proba)
-            label = self.Classilb.classes_[idx]
-            amount = (proba[idx]) * 100
-            
-            result = f'{label}_{str(amount)}'
-            self.DetClassiResult.append(result)
-            print("*********", label, amount)
-            foldername = f'Det_Test/{label}'
-            if not (os.path.isdir(foldername)):
-                os.makedirs(os.path.join(foldername))
-            cv2.imwrite(f'{foldername}/{filename}.jpg', output)
-            return label, amount
-
-        except:
-            print(traceback.format_exc())
-            return "OK", 0.9
-
-    def checkValueDictUpdate(self, dictdata):
-        for name, value in dictdata:
-            self.checkValueDict[name] = value
-
-    def Definition_Inspection(self, Image):
-        startTime = time.time()
-        def Sobel(img):
-            img_sobel_x = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)
-            img_sobel_x = cv2.convertScaleAbs(img_sobel_x)
-
-            img_sobel_y = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=3)
-            img_sobel_y = cv2.convertScaleAbs(img_sobel_y)
-
-            img_sobel = cv2.addWeighted(img_sobel_x, 1, img_sobel_y, 1, 0)
-
-            return img_sobel
-
-        def get_Definition(img_sobel):
-            sum_data = 0
-
-            for y in range(0, len(img_sobel), 1):
-                for x in range(0, len(img_sobel[y]), 1):
-                    sum_data += (int(img_sobel[y, x]) ** 2)
-            sum_data = sum_data / (len(img_sobel) * len(img_sobel[y]))
-
-            return int(sum_data)
-
-        img_gray = cv2.cvtColor(Image, cv2.COLOR_BGR2GRAY)
-
-        img_data = Sobel(img_gray)
-        Definition = get_Definition(img_data)
-        print(f'선명도 체크 결과수치 - {Definition}')
-        logger.info(f'Definition Inspection Result Score - {Definition}')
-        logger.info(f'Definition Inspection Time - {time.time() - startTime}')
-
-        return Definition
-
-    def ClassiInspection(self, oriOutput, images, FrameCount):
-        sub_image = images.copy()
-        self.allDone = False
-        # startTime = time.time()
-        continuityDetectImageUpdateTriger = False
-        criticalDetectImageUpdateTriger = False
-        BadDataCheck = False
-        ReturnBadCounting = []
-        try:
-            if FrameCount == 1:
-                self.resultOKImageData = oriOutput.copy()
-
-            if FrameCount in [5,10,15]:
-                #외륜 104, 내륜 111 각인 검증
-                if (CodeSetup == "CUP" and ClientName == "CLIENT0" and (Socket_main.nowModel in EFFI.Det_ModelSetup['CUP'])) or (CodeSetup == "CONE" and ClientName == "CLIENT1" and (Socket_main.nowModel in EFFI.Det_ModelSetup['CONE'])) or (LINE == 'SS11' and CodeSetup == "CUP" and ClientName == "CLIENT1" and (Socket_main.nowModel == "MODEL7" or Socket_main.nowModel == "MODEL8")):
-                    if CodeSetup == "CONE" and ClientName == "CLIENT1" : # 내륜 111번 각인 검사 서브 마스킹으로 대체and (Socket_main.nowModel in EFFI.Det_ModelSetup['CUP'])
-                        det_ori_image = oriOutput.copy()
-                        det_image = cv2.bitwise_and(det_ori_image, self.SubClassiMask)
-                    else :
-                        det_image = images
-                        
-                    if EFFI.Det_Running == True:
-                        # SS11라인 101 식별 각인 추가
-                        if LINE == 'SS11' and CodeSetup == "CUP" and ClientName == "CLIENT1" and (Socket_main.nowModel == "MODEL7" or Socket_main.nowModel == "MODEL8"):
-                            resultEngraveLabel, resultEngraveCount, det_output_image = self.Det_inspection(det_image, EFFI.EngraveCheckLimit_101[Socket_main.nowModel], FrameCount)
-                            self.Det_resultLabel[1] = resultEngraveCount
-
-                            #각인 갯수 검사결과 갱신
-                            if EFFI.EngraveCheckLimit_101[Socket_main.nowModel] == resultEngraveCount:
-                                print(f'[Engrave Detect Count] - Count Check OK / Limit : {EFFI.EngraveCheckLimit_101[Socket_main.nowModel]}, Result : {resultEngraveCount}')
-                            else:
-                                print(f'[Engrave Detect Count] - Count Check NG / Limit : {EFFI.EngraveCheckLimit_101[Socket_main.nowModel]}, Result : {resultEngraveCount}')
-
-                            #각인 라벨 검사결과 갱신
-                            if resultEngraveLabel == 'OK':
-                                print(f'[Engrave Detect Label] - Label Check OK')
-                                self.Det_resultLabel[0] = resultEngraveLabel
-                            else:
-                                if self.Det_resultLabel[0] == 'OK' :
-                                    pass
-                                else : 
-                                    print(f'[Engrave Detect Label] - Label Check NG - Result : {resultEngraveLabel}')
-                                    if self.Det_resultLabel[0] != 'OK':
-                                        self.Det_resultLabel[0] = resultEngraveLabel
-
-                            if ('NG' in resultEngraveLabel) or (EFFI.EngraveCheckLimit_101[Socket_main.nowModel] != resultEngraveCount):
-                                path = f"DetectionNg/{resultEngraveCount}"
-                                now = datetime.now()
-                                year = now.year
-                                month = now.month
-                                day = now.day
-                                hour = now.hour
-                                minute = now.minute
-                                second = now.second
-                                mic = now.microsecond
-                                inputFileName = f'{Socket_main.nowModel}_{year}_{month}_{day}_{hour}_{minute}_{second}_{mic}_{resultEngraveCount}Count.jpg'
-                                # DetLoadImg = cv2.resize(images, dsize = (1024, 1024), interpolation = cv2.INTER_AREA)
-                                MQ.put((path, "SaveImg_{}.jpg".format(inputFileName), det_output_image))
-
-                        else :
-                            resultEngraveLabel, resultEngraveCount, det_output_image = self.Det_inspection(det_image, EFFI.EngraveCheckLimit[Socket_main.nowModel], FrameCount)
-                            
-                            # self.Det_resultLabel[0], self.Det_resultLabel[1]
-                            #각인 갯수 검사결과 갱신
-                            if EFFI.EngraveCheckLimit[Socket_main.nowModel] == resultEngraveCount:
-                                print(f'[Engrave Detect Count] - Count Check OK / Limit : {EFFI.EngraveCheckLimit[Socket_main.nowModel]}, Result : {resultEngraveCount}')
-                                self.Det_resultLabel[1] = resultEngraveCount
-                            else:
-                                print(f'[Engrave Detect Count] - Count Check NG / Limit : {EFFI.EngraveCheckLimit[Socket_main.nowModel]}, Result : {resultEngraveCount}')
-                                if self.Det_resultLabel[1] != EFFI.EngraveCheckLimit[Socket_main.nowModel]:
-                                    self.Det_resultLabel[1] = resultEngraveCount
-
-                            #각인 라벨 검사결과 갱신
-                            if resultEngraveLabel == 'OK':
-                                print(f'[Engrave Detect Label] - Label Check OK')
-                                self.Det_resultLabel[0] = resultEngraveLabel
-                            else:
-                                if self.Det_resultLabel[0] == 'OK' :
-                                    pass
-                                else : 
-                                    print(f'[Engrave Detect Label] - Label Check NG - Result : {resultEngraveLabel}')
-                                    if self.Det_resultLabel[0] != 'OK':
-                                        self.Det_resultLabel[0] = resultEngraveLabel
-
-                            if ('NG' in resultEngraveLabel) or (EFFI.EngraveCheckLimit[Socket_main.nowModel] != resultEngraveCount):
-                                path = f"DetectionNg/{resultEngraveCount}"
-                                now = datetime.now()
-                                year = now.year
-                                month = now.month
-                                day = now.day
-                                hour = now.hour
-                                minute = now.minute
-                                second = now.second
-                                mic = now.microsecond
-                                inputFileName = f'{Socket_main.nowModel}_{year}_{month}_{day}_{hour}_{minute}_{second}_{mic}_{resultEngraveCount}Count.jpg'
-                                # DetLoadImg = cv2.resize(images, dsize = (1024, 1024), interpolation = cv2.INTER_AREA)
-                                MQ.put((path, "SaveImg_{}.jpg".format(inputFileName), det_output_image))
-
-            for i in range(self.PartCounting): # oh
-                if i == 3 and (CodeSetup == "CONE" and ClientName == "CLIENT1") : # 111 이종 혼입 검사
-                    if FrameCount in [5, 10, 15]: # 5, 10, 15 프레임만 검사
-                        print(f"[★] 이종 혼입 검사 시작 - 검사 프레임 {FrameCount}")
-                        pass
-                    else :
-                        continue
+                    if "json" in recv_data:
+                        json_data = recv_data.split(":", 1)[1].strip()
+                        self.info_json = json.loads(json_data)
+                        print(f"[information] info_json: {self.info_json}")
+                        self.load_info_json()  # Json값들 변수에 저장
+                        self.load_result_dict()  # 검사 결과 딕셔너리 로드
+                        self.load_classification_mask()  # 마스킹 로드
                     
-                if i == 3 and (CodeSetup == "CONE" and ClientName == "CLIENT0") : # 114 이종 혼입 검사
-                    if FrameCount in [5, 10, 15]: # 5, 10, 15 프레임만 검사
-                        print(f"[★] 이종 혼입 검사 시작 - 검사 프레임 {FrameCount}")
-                        pass
-                    else :
-                        continue
-                
-                if i == 2 and (CodeSetup == "CUP" and ClientName == "CLIENT0") : # 104 이종 혼입 검사
-                    if FrameCount in [5, 10, 15]: # 5, 10, 15 프레임만 검사
-                        print(f"[★] 이종 혼입 검사 시작 - 검사 프레임 {FrameCount}")
-                        pass
-                    else :
-                        continue
+                    elif "model" in recv_data:
+                        recv_model_name = recv_data.split(":", 2)[1].strip()
+                        recv_json_data = recv_data.split(":", 2)[2].strip()
 
-                if i == 1 and (CodeSetup == "CONE" and ClientName == "CLIENT5") : # 116 이종 혼입 검사
-                    if FrameCount in [2, 4, 6, 8, 10, 12, 14 ,16 ,18, 20, 22, 24, 26, 28, 30]: # 15개 프레임만 검사
-                        print(f"[★] 이종 혼입 검사 시작 - 검사 프레임 {FrameCount}")
-                        pass
-                    else :
-                        continue
-
-                # SS9 궤도 검사 구역 추가된 형번
-                if i == 0 and (LINE == 'SS9' and CodeSetup == "CUP" and ClientName == "CLIENT2") :
-                    if Socket_main.nowModel == "MODEL4" or Socket_main.nowModel == "MODEL5" or Socket_main.nowModel == "MODEL6" :
-                        images = cv2.bitwise_and(images, EFFI.ClassiMasker)
-                elif i == 1 and (LINE == 'SS9' and CodeSetup == "CUP" and ClientName == "CLIENT2") :
-                    if Socket_main.nowModel == "MODEL4" or Socket_main.nowModel == "MODEL5" or Socket_main.nowModel == "MODEL6" :
-                        if FrameCount in [4,8,12,16,20,24,28,32,36,40]: # PART2 10장만 검사 그 외는 패스
-                            cv2.imwrite('sub_image.jpg', sub_image)
-                            row_image = cv2.imread('sub_image.jpg')
-                            images = cv2.copyTo(row_image, EFFI.SubClassiMask, EFFI.SubClassiMask)
-                            images = cv2.convertScaleAbs(images, alpha=3, beta=0)
-                            print(f"[★] 궤도 하단부 추가 검사 - 검사 프레임 {FrameCount}")
-                        else :
+                        if self.load_complete and self.model_name == recv_model_name:  # 모델 로드 완료 후 같은 모델 로드 요청 시 패스
+                            self.send_queue.put(('msg', 'model_load_complete'))
+                            LM.log_print(f"[Socket] {self.model_name} Loading Signal Recv, SameModel Setup (pass)")
                             continue
 
-                rect_image = images[self.cropBox[Socket_main.nowModel][i][0] : self.cropBox[Socket_main.nowModel][i][0] + self.cropBox[Socket_main.nowModel][i][2],
-                                    self.cropBox[Socket_main.nowModel][i][1] : self.cropBox[Socket_main.nowModel][i][1] + self.cropBox[Socket_main.nowModel][i][3]].copy()
-                
-                if len(self.cropBox[Socket_main.nowModel][i]) != 4  :             # 회전 재원이 입력되어 있는 경우만 실행
-                    crop_rotate_angle = self.cropBox[Socket_main.nowModel][i][4]  # 이미지 회전 각도
-                    coord = self.cropBox[Socket_main.nowModel][i][0:4]
-                    matrix = cv2.getRotationMatrix2D((int(coord[3]/2), int(coord[2]/2)), crop_rotate_angle, 1)
-                    rect_image = cv2.warpAffine(rect_image, matrix, (coord[3], coord[2]))
-                    cv2.imwrite('rotate.jpg', rect_image)         
+                        else:
+                            self.model_name = recv_model_name
+                            self.info_json = json.loads(recv_json_data)
+                            LM.log_print(f"[Socket] {self.model_name} Loading Signal Recv, New Model Setup")
+                            print(f"[information] info_json: {self.info_json}")
+                            self.load_info_json()  # Json값들 변수에 저장
 
-                ##################################################################################
-                if FrameCount == 1 and i == 0:
-                    resultLabel, score = self.inspection(rect_image, True)
-                else:
-                    resultLabel, score = self.inspection(rect_image, False)
+                            try:
+                                # 1. 기존 monitor 폴더 제거
+                                if os.path.isdir('monitor'):
+                                    shutil.rmtree('monitor')
 
-                # resultLabel = 'NG'
-                # score = 90
-                # self.Definition_Result = 999
+                                # 2. 분류 모델
+                                self.load_result_dict()  # 검사 결과 딕셔너리 로드
+                                self.load_classification_mask()  # 마스크 로드
 
-                if 'MIX' in resultLabel :
-                    print(f"[★] 이종 혼입 불량 발생 - 검사 프레임 {FrameCount}")
-                else :
-                    print(f"Part{i+1} > Label : {resultLabel}, score : {score}")
-                
-                # 불량 판정
-                if 'OK' not in resultLabel:
-                    # 불량 이미지 전송
-                    size = self.modelResizeDict[Socket_main.nowModel]
-                    savedImage = cv2.resize(rect_image, (size[1], size[0]))
+                                # 분류 모델 로드
+                                result, update_msg = CL.model_load(self.model_name, self.json_label_list)
+                                if result == 'fail':
+                                    self.send_queue.put(('msg', 'load:classi_model:fail'))
+                                    self.load_complete = False
+                                    raise Exception("Classification model loading failed")
+                                elif result == 'different':
+                                    self.send_queue.put(('msg', update_msg))
+                                else:
+                                    LM.log_print(f"[MODEL] {self.model_name} Classification Model Loaded")
 
-                    if self.ng_send_count_list[i] < 2 : # 불량 2장만 전송
-                        msg = f"{ClientSetup}NGFRAME{i+1}{resultLabel}"
-                        Socket_main.ClientSocketSend(msg)
-                        pickleData = pickle.dumps(savedImage)
-                        Socket_main.client_socket.send(str(len(pickleData)).ljust(20).encode())
-                        Socket_main.client_socket.send(pickleData)
-                        print('불량 이미지 전송')
-                        self.ng_send_count_list[i] += 1
+                                # 3. 디텍션
+                                self.load_detection_mask()  # 마스크 로드
 
-                    if ODC.NgCaptureCheck == True:
-                        now = datetime.now()
-                        now = datetime.now()
-                        year = str(now.year).zfill(4)
-                        month = str(now.month).zfill(2)
-                        day = str(now.day).zfill(2)
-                        hour = str(now.hour).zfill(2)
-                        minute = str(now.minute).zfill(2)
-                        second = str(now.second).zfill(2)
-                        mic = str(now.microsecond).zfill(6)
-                        path = f"NgCapture/{year}_{month}_{day}/{Socket_main.nowModel}/{self.SessionCheckList[i]}/{resultLabel}"
-                        inputFileName = f'{year}_{month}_{day}_{hour}_{minute}{second}{mic}.jpg'
-                        MQ.put((path, inputFileName, savedImage))
-                
-                # 양품 판정
-                else :
-                    if self.ok_send_count_list[i] < 1 : # 양품 1장만 전송
-                        # 양품 이미지 전송
-                        size = self.modelResizeDict[Socket_main.nowModel]
-                        savedImage = cv2.resize(rect_image, (size[1], size[0]))
+                                # 디텍션 모델 로드
+                                result = DT.model_load()
+                                if result == 'fail':
+                                    self.send_queue.put(('msg', 'load:det_model:fail'))
+                                    self.load_complete = False
+                                    raise Exception("Detection model loading failed")
+                                else:
+                                    print(f"[MODEL] {self.model_name} Detection Model Loaded")
 
-                        msg = f"{ClientSetup}OKFRAME{i+1}{resultLabel}"
-                        Socket_main.ClientSocketSend(msg)
-                        pickleData = pickle.dumps(savedImage)
-                        Socket_main.client_socket.send(str(len(pickleData)).ljust(20).encode())
-                        Socket_main.client_socket.send(pickleData)
-                        print('양품 이미지 전송')
-                        self.ok_send_count_list[i] += 1
+                                # 4. 모든 로딩 성공 완료 신호 전송
+                                self.send_queue.put(('msg', 'model_load_complete'))
+                                LM.log_print(f"[Model] {self.model_name} All models loaded successfully!!")
+                                self.load_complete = True
 
-                if CTH.CaptureMode_Process == True:
-                    size = self.modelResizeDict[Socket_main.nowModel]
-                    savedImage = cv2.resize(rect_image, (size[1], size[0]))
-                    now = datetime.now()
-                    year = str(now.year).zfill(4)
-                    month = str(now.month).zfill(2)
-                    day = str(now.day).zfill(2)
-                    hour = str(now.hour).zfill(2)
-                    minute = str(now.minute).zfill(2)
-                    second = str(now.second).zfill(2)
-                    mic = str(now.microsecond).zfill(6)
-                    path = f"Capture_Train"
-                    inputFileName = f'{year}_{month}_{day}_{hour}_{minute}{second}{mic}.jpg'
-                    MQ.put((path, inputFileName, savedImage))
+                            except Exception as e:
+                                self.load_complete = False
+                                LM.log_print(f"[Model] {self.model_name} Failed to load models: {str(e)}")
 
-                # 중대불량 체크
-                for CheckLabel in EFFI.CriticalProductSetup[ClientName]:
-                    if (CheckLabel in resultLabel and score > self.checkValueDict[CheckLabel][0]):
-                        print('\n\n 중 대 불 량 발 생 \n\n')
-                        cv2.rectangle(oriOutput, (self.cropBox[Socket_main.nowModel][i][1], self.cropBox[Socket_main.nowModel][i][0]), (self.cropBox[Socket_main.nowModel][i][1]+self.cropBox[Socket_main.nowModel][i][3], self.cropBox[Socket_main.nowModel][i][0]+self.cropBox[Socket_main.nowModel][i][2]), (0,0,255), 5)
-                        EFFI.CriticalProductResultDict[CheckLabel][1] += 1
-                        EFFI.CriticalProductResultDict[CheckLabel][3] += 1
+                    elif recv_data == 'start':  # 검사 시작
+                        LM.log_print("[Inspection] Start Signal Recv")
+                        HW.reset_inspection_variables()
+                        HW.state = 'RUNNING'
+                        HW.inspection_start_time = time.time()
+                        GC.shooting_signal = True
+                        self.current_date = datetime.now().strftime("%Y_%m_%d")
+                    
+                    elif "capture" in recv_data:
+                        capture_type = recv_data.split(":")[1]  # origin(원본), ng(불량), inspection(검사이미지)
+                        capture_mode_str = recv_data.split(":")[2].lower()  # true, false
+                        capture_mode = True if capture_mode_str == "true" else False
+                        self.capture_signal_dict[capture_type] = capture_mode
+                        LM.log_print(f"[Socket] Capture: {capture_type} {capture_mode}")
+                    
+                    elif "reboot" in recv_data:
+                        LM.log_print("[Socket] Reboot Signal Recv")
+                        os.system("sudo reboot")
+                    
+                    elif "recent" in recv_data:
+                        recent_origin_send_signal = recv_data.split(":")[2]  # start, stop
+                        if recent_origin_send_signal == 'start':
+                            self.recent_origin_send_signal = True
+                            LM.log_print("[Socket] Recent Origin Send Signal Start")
+                        elif recent_origin_send_signal == 'stop':
+                            self.recent_origin_send_signal = False
+                            LM.log_print("[Socket] Recent Origin Send Signal Stop")
+                    
+                    elif recv_data == 'code_update':
+                        LM.log_print("[Socket] Code Update Signal Recv")
+                        HW.code_update()
 
-                        # if EFFI.CriticalProductResultDict[CheckLabel][1] >= self.checkValueDict[CheckLabel][1]:
-                        if EFFI.CriticalProductResultDict[CheckLabel][1] >= EFFI.CriticalProductResultDict[CheckLabel][2]:
-                            EFFI.CriticalProductResultDict[CheckLabel][2] = EFFI.CriticalProductResultDict[CheckLabel][1]
-                            # EFFI.CriticalProductResultDict[CheckLabel][0] = True
-                        
-                        criticalDetectImageUpdateTriger = True
-                        BadDataCheck = True
-                    else:
-                        EFFI.CriticalProductResultDict[CheckLabel][1] = 0
-                        pass
+                except:
+                    LM.log_print(f"[Socket] Socket command execution failed: {traceback.format_exc()}")
+                    time.sleep(1)
+                    raise
+            except:
+                LM.log_print(f"[Socket] Socket Error: {traceback.format_exc()}")
+                time.sleep(1)
 
-                # 일반 파트별 검사 체크
-                print(f'{resultLabel} , {score} > {self.checkValueDict[f"PART{i+1}"][0]}')
-                if ("NG" in resultLabel and score > self.checkValueDict[f"PART{i+1}"][0]):
-                    # print(f"Part{i+1} Result Check {self.SessionCheckList[i]} : {resultLabel}")
-                    cv2.rectangle(
-                        oriOutput, (self.cropBox[Socket_main.nowModel][i][1], self.cropBox[Socket_main.nowModel][i][0]), (self.cropBox[Socket_main.nowModel][i][1] + self.cropBox[Socket_main.nowModel][i][3], self.cropBox[Socket_main.nowModel][i][0] + self.cropBox[Socket_main.nowModel][i][2]), (0, 0, 255), 5,
-                    )
-
-                    self.BadCheckCount[i] += 1
-                    if self.BadCheckCount[i] >= self.checkValueDict[f"PART{i+1}"][1]: 
-                        print(f"Continuity Bad Detect Check - Part{i+1}")
-                        self.continuityDetectState = True
-                        continuityDetectImageUpdateTriger = True
-
-                    self.resultImageData[i] = oriOutput.copy()
-                    ReturnBadCounting.append(i)
-                    BadDataCheck = True
-
-                else:
-                    self.BadCheckCount[i] = 0
-                    print(f"Part Result Check {i+1} : OK")
-                    # cv2.rectangle(oriOutput, (self.cropBox[Socket_main.nowModel][i][1], self.cropBox[Socket_main.nowModel][i][0]), (self.cropBox[Socket_main.nowModel][i][1]+self.cropBox[Socket_main.nowModel][i][3], self.cropBox[Socket_main.nowModel][i][0]+self.cropBox[Socket_main.nowModel][i][2]), (0,255,0), 10)
-
-            if continuityDetectImageUpdateTriger == True:
-                self.continuityDetectImage = oriOutput.copy()
-
-            #중대불량 불량이미지 백업
-            if criticalDetectImageUpdateTriger == True:
-                for CriticalLabel in EFFI.CriticalProductSetup[ClientName]:
-                    if EFFI.CriticalProductResultDict[CriticalLabel][1] >= EFFI.checkValueDict[CriticalLabel][1]:
-                        EFFI.CriticalProductResultDict[CriticalLabel][0] = False
-                        EFFI.CriticalProductImageDict[CriticalLabel] = oriOutput.copy()
-                    if EFFI.CriticalProductResultDict[CriticalLabel][3] >= EFFI.checkValueDict[CriticalLabel][2]:
-                        EFFI.CriticalProductImageDict[CriticalLabel] = oriOutput.copy()
-
-            #최종 불량이미지 백업
-            if BadDataCheck == True:
-                self.LastBadImage = oriOutput.copy()
-
-            # print("[INFO] Elapesed time : ", time.time() - startTime)
-
-            return ReturnBadCounting
-        except:
-            print(f'[Error] Inspection Process Error - {traceback.format_exc()}')
-            logger.info(f'[Error] Inspection Process Error - {traceback.format_exc()}')
-            return []
-
-    def inspection(self, img, FirstCheck):
-        try:
-            size = self.modelResizeDict[Socket_main.nowModel]
-            img = cv2.resize(img, (size[1], size[0]))
-
-            cv2.imwrite('Inspection.jpg', img)
-            img = cv2.imread('Inspection.jpg')
-
-            # if FirstCheck == True:
-            #     self.Definition_Result = self.Definition_Inspection(img)
-
-            # print(img.shape)
-            # output = img.copy()
-            img = img.astype("float") / 255.0
-            img = img_to_array(img)
-            img = np.expand_dims(img, axis=0)
-
-            # OH
-            # tf2 MODEL
-            # proba = self.model.predict_on_batch(img)[0]
-
-            # tf1 MODEL
-            # proba = self.model.predict(img)[0]
-            # with self.graph_classi.as_default():
-
-            proba = self.model.predict(img)[0]
-            idx = np.argmax(proba)
-            label = self.lb.classes_[idx]
-            amount = (proba[idx]) * 100
-
-            # if "NG" in label and amount < 0.85:
-            # 	label = "OK"
-
-            # label = 'OK'
-            # amount = 99
-
-            return label, amount
-        except:
-            print('에러 발생으로 강제 불량 판정', traceback.format_exc()) # OH
-            logger.info(f'[Error] Classification Error \n{traceback.format_exc()}')
-            return "NG", 99
-
-
-class ObjectDetectImg:
+class HardWork:
     def __init__(self):
-        # threading.Thread.__init__(self)
-        self.min_confidence = 0.3
-        self.inspectionCheck = False
-        self.ModelLoadComp = False
-        self.badSearchCheck = []
+        # 마스킹 이미지들을 딕셔너리로 관리
+        self.mask_images = {
+            'main': None,  # 일반 마스킹 이미지
+            'sub': None,   # 서브 마스킹 이미지
+            'det': None    # 디텍션 마스킹 이미지   
+        }
+        self.trash_frame_count = 0  # 버리는 프레임 체크용
+        self.inspection_count = 0  # 검사 프레임 수
+        self.inspection_start_time = None  # 검사 시간
+        self.skip_unnecessary_images = False  # 불필요한 이미지 스킵 여부
+        self.first_frame_check = False  # 첫 프레임 체크
+        self.ok_image = None  # 양품 이미지
+        self.det_ng_image = None  # 디텍션 불량 이미지
+        self.ng_name = None  # 불량 이름
+        self.detection_ng_count = 0  # 디텍션 검사 불량 개수
+        self.inspection_result_dict = {}  # 검사 결과 목록
+        self.image_save_queue = MQueue()  # 이미지 저장 큐
+        self.image_monitor_queue = MQueue()  # 이미지 모니터링 큐
+        self.origin_image_save_base_path = 'Capture/origin'  # 원본 이미지 저장 경로
+        self.ng_image_save_base_path = 'Capture/ng'  # 불량 이미지 저장 경로
+        self.classification_image_save_base_path = 'Capture/inspection/classification'  # 분류 검사 이미지 저장 경로
+        self.detection_image_save_base_path = 'Capture/inspection/detection'  # 디텍션 검사 이미지 저장 경로
+        self.state = 'IDLE'  # IDLE(초기), RUNNING(검사중), ANALYZING(분석중), WAITING(대기)  # 클라이언트 상태
+        self.lock = threading.Lock()
+        self.recent_image_send_count = {}  # 최근 이미지 전송 횟수
 
-        self.NgCaptureCheck = False
-
-
-    def inspectionIMG(self):
-
-        imageInspectionCount = 0
-        # resultNgCheck = 0
-        startTime = time.time()
-
-        logger.info("[Notice] Inspection Start")
-        print("검사 진행중")
-
-        EFFI.resultPartData = [0] * EFFI.PartCounting
-        DataEmptyCount = 0
-
+    def reset_inspection_variables(self):
+        """검사 변수 초기화"""
+        with self.lock:
+            GC.Qimage.queue.clear()
+            self.trash_frame_count = 0
+            self.inspection_count = 0
+            self.recent_image_send_count = {}
+            self.skip_unnecessary_images = False
+            self.first_frame_check = False
+            self.ok_image = None
+            self.det_ng_image = None
+            self.ng_name = None
+            self.detection_ng_count = 0
+            self.recent_image_send_count['ORIGIN'] = 0
+            self.recent_image_send_count['ENGRAVE'] = {'OK': 0, 'NG': 0}
+            for part_name in self.inspection_result_dict.keys():
+                self.inspection_result_dict[part_name] = []
+                self.recent_image_send_count[part_name] = {'OK': 0, 'NG': 0}
+            self.state = 'IDLE'
+            LM.log_print("[Inspection] Inspection Variables Reset")
+    
+    def inspection_thread(self):
         while True:
             try:
-                if not CTH.Qimage.empty():
-                    startTime_OneImageCycle = time.time()
-                    DataEmptyCount = 0
-                    images = CTH.Qimage.get()
-                    imageInspectionCount += 1
-
-                    output = images.copy()
-
-                    # print(f'Check1 - {time.time() - startTime_OneImageCycle}')
-                    
-                    # classification inspection add
-                    # ******************************************************************************************************************************************************
-                    if imageInspectionCount == 1: # 첫장
-                        # 9라인 외륜 ST-E508422 궤도 하단부 검사 구역 추가
-                        if LINE == 'SS9' and CodeSetup == "CUP" and ClientName == "CLIENT2" :
-                            if Socket_main.nowModel == "MODEL4" or Socket_main.nowModel == "MODEL5" or Socket_main.nowModel == "MODEL6" :
-                                # 첫 프레임 마스킹 확인하기 위해 저장
-                                maskedImage = cv2.bitwise_and(images, EFFI.ClassiMasker)
-                                cv2.imwrite("Masking.jpg", maskedImage)
-                                submaskedImage = cv2.bitwise_and(images, EFFI.SubClassiMask)
-                                cv2.imwrite("SubMasking.jpg", submaskedImage)
-                                ClassiResult = EFFI.ClassiInspection(output, images, imageInspectionCount) # 마스킹 ClassiInspection 함수 내에서 실행
-                            else :
-                                classiImage = cv2.bitwise_and(images, EFFI.ClassiMasker)
-                                cv2.imwrite("Masking.jpg", classiImage)
-                                ClassiResult = EFFI.ClassiInspection(output, classiImage, imageInspectionCount)
-                        else : 
-                            classiImage = cv2.bitwise_and(images, EFFI.ClassiMasker)
-                            cv2.imwrite("Masking.jpg", classiImage)
-                            ClassiResult = EFFI.ClassiInspection(output, classiImage, imageInspectionCount)
-                    else: 
-                        if LINE == 'SS9' and CodeSetup == "CUP" and ClientName == "CLIENT2":
-                            if Socket_main.nowModel == "MODEL4" or Socket_main.nowModel == "MODEL5" or Socket_main.nowModel == "MODEL6" :
-                                ClassiResult = EFFI.ClassiInspection(output, images, imageInspectionCount)
-                            else : 
-                                classiImage = cv2.bitwise_and(images, EFFI.ClassiMasker)
-                                ClassiResult = EFFI.ClassiInspection(output, classiImage, imageInspectionCount)
-                        else : 
-                            classiImage = cv2.bitwise_and(images, EFFI.ClassiMasker)
-                            ClassiResult = EFFI.ClassiInspection(output, classiImage, imageInspectionCount)
-
-                    # print(f'Check2 - {time.time() - startTime_OneImageCycle}')
-
-                    for i in ClassiResult:
-                        checkIndex = int(i)
-                        EFFI.resultPartData[checkIndex] += 1
-
-                    print(f"[Notice] Inspection Complete - {imageInspectionCount} / {time.time() - startTime_OneImageCycle}")
-
-                    if ClientName == 'CLIENT1' or ClientName == 'CLIENT0':
-                        checkFrame = 21
-                    else:
-                        checkFrame = 43
-
-                    if imageInspectionCount >= checkFrame:
-                        print("InsepctionIMG inspection Count OVER")
-                        print("InspectionIMG Thread Closed")
-                        logger.info("[Notice] Inspection Thread Closed")
-                        self.inspectionCheck = True
-                        break
-
-                else:
-                    print("data empty check")
-                    if Socket_main.resultSession == True:
-                        print("InspectionIMG Thread Closed")
-                        logger.info("[Notice] Inspection Thread Closed")
-                        self.inspectionCheck = True
-                        break
-
+                if self.state == 'IDLE':
                     time.sleep(0.1)
+                    continue
 
-                    if time.time() - startTime > 8:
-                        print("InspectionIMG TIME OUT Thread Closed")
-                        logger.info("[Notice] Inspection TIME OUT Thread Closed")
-                        break
+                elif self.state == 'RUNNING':
+                    if not GC.Qimage.empty():
+                        if self.inspection_count >= SS.inspection_frame:
+                            LM.log_print(f"[Inspection] Inspection Frame Over: {self.inspection_count} >= {SS.inspection_frame}")
+                            GC.shooting_signal = False
+                            self.state = 'ANALYZING'
+                            continue
+                        
+                        image = GC.Qimage.get()
+                        
+                        if not self.skip_unnecessary_images:  # 첫 4프레임 스킵
+                            self.trash_frame_count += 1
+                            if self.trash_frame_count == 4:
+                                LM.log_print(f"[Inspection] Skip Unnecessary Images: {self.trash_frame_count}")
+                                self.skip_unnecessary_images = True
+                                self.inspection_count = 0
+                            else:
+                                continue
+                        
+                        self.inspection_count += 1
+
+                        print(f"Inspection frame: {self.inspection_count}")
+
+                        if SS.capture_signal_dict["origin"]:  # 원본 이미지 저장
+                            origin_image_save_path = f"{self.origin_image_save_base_path}/{SS.current_date}/{SS.model_name}"
+                            self.image_save_queue.put((origin_image_save_path, image))
+
+                        if not self.first_frame_check:  # 첫 프레임 양품 이미지 저장
+                            self.first_frame_check = True
+                            self.ok_image = self.make_show_image(image)
+
+                        # 1. 디텍션 검사
+                        if SS.detection_use and self.inspection_count in SS.detection_frame:
+                            det_image = cv2.bitwise_and(image, HW.mask_images['det'])
+                            self.detection_inspection(det_image)
+
+                        # 2. 분류 검사
+                        self.classification_inspection(image)
+                    else:
+                        time.sleep(0.1)
+                
+                elif self.state == 'ANALYZING':
+                    with self.lock:
+                        result = self.analysis_result()
+                        self.send_result(result)
+                        threading.Thread(target=self.check_and_cleanup).start()
+                        self.state = 'WAITING'
+                
+                elif self.state == 'WAITING':
+                    time.sleep(0.1)
+                    continue
 
             except:
-                logger.info(f"Warning : inspection work error \n {traceback.format_exc()}")
+                LM.log_print(f"[Inspection] Inspection Thread Error: {traceback.format_exc()}")
+                continue
 
+    def detection_inspection(self, image):
+        """디텍션 검사"""
+        x, y, w, h = SS.detection_coords
+        det_image = image[y:y+h, x:x+w]
+        self.image_monitor_queue.put(('detection_masked.jpg', det_image))
 
-def SaveImages(MQ):
-    while True:
-        if not MQ.empty():
-            try:
-                data = MQ.get()
-                foldername = data[0]
-                filename = data[1]
+        if SS.capture_signal_dict["inspection"]:  # 디텍션 검사 이미지 저장
+            detection_image_save_path = f"{self.detection_image_save_base_path}/{SS.current_date}/{SS.model_name}"
+            self.image_save_queue.put((detection_image_save_path, det_image))
 
-                if not (os.path.isdir(foldername)):
-                    os.makedirs(os.path.join(foldername))
+        engrave_count = DT.detection(det_image)
 
-                cv2.imwrite(foldername + "/" + filename, data[2])
+        if SS.ok_engrave != engrave_count:
+            print(f"[Detection] Engrave Count NG: {engrave_count}/{SS.ok_engrave}")
+            self.detection_ng_count += 1
+            
+            if self.recent_image_send_count['ENGRAVE']['NG'] < 1:  # 각인 불량 이미지 전송
+                SS.send_queue.put(('msg', f'recent:ng:engrave:'))
+                SS.send_queue.put(('image', det_image))
+                self.recent_image_send_count['ENGRAVE']['NG'] += 1
 
-            except:
-                pass
+            if SS.capture_signal_dict["ng"]:  # 불량 이미지 저장
+                det_ng_image_save_path = f"{self.ng_image_save_base_path}/detection/{SS.current_date}/{SS.model_name}/{engrave_count}"
+                self.image_save_queue.put((det_ng_image_save_path, det_image))
+        else:
+            print(f"[Detection] Engrave Count OK: {engrave_count}/{SS.ok_engrave}")
+
+            if self.recent_image_send_count['ENGRAVE']['OK'] < 1:  # 각인 양품 이미지 전송
+                SS.send_queue.put(('msg', f'recent:ok:engrave:'))
+                SS.send_queue.put(('image', det_image))
+                self.recent_image_send_count['ENGRAVE']['OK'] += 1
+
+        if len(SS.detection_frame) == self.detection_ng_count:
+            self.ng_name = 'detection'
+            self.det_ng_image = self.make_show_image(image)
+    
+    def rotate_image(self, image, angle):
+        """이미지 회전"""
+        rows, cols = image.shape[:2]
+        M = cv2.getRotationMatrix2D((cols/2, rows/2), angle, 1)
+        return cv2.warpAffine(image, M, (cols, rows))
+    
+    def get_mask_image(self, mask_type):
+        """마스킹 타입에 따른 마스킹 이미지 반환"""
+        if mask_type == 'detection':
+            return self.mask_images.get('det')
+        elif mask_type == '_sub':
+            return self.mask_images.get('sub')
+        else:
+            return self.mask_images.get('main')
+    
+    def classification_inspection(self, image):
+        """분류 검사"""
+        ori_image = image.copy()
+        if SS.recent_origin_send_signal and self.recent_image_send_count['ORIGIN'] < 1:  # 원본 이미지 1장 전송
+            SS.send_queue.put(('msg', f'recent:origin::'))
+            SS.send_queue.put(('image', ori_image))
+            self.recent_image_send_count['ORIGIN'] += 1
+
+        for idx, (name, values) in enumerate(SS.inspection_coords.items()):
+            part_name = name
+            mask_type, x, y, w, h, angle = values[0], values[1], values[2], values[3], values[4], values[5]
+            
+            # 딕셔너리에서 마스킹 이미지 가져오기
+            mask_image = self.get_mask_image(mask_type)
+            
+            if mask_image is not None:
+                # 마스킹 적용
+                masked_image = cv2.bitwise_and(image, mask_image)
+                mask_suffix = 'sub' if mask_type == '_sub' else 'main'
+                self.image_monitor_queue.put((f'{part_name}_classi_{mask_suffix}_masked.jpg', masked_image))
+            else:
+                # 마스킹이 없는 경우 원본 이미지 사용
+                masked_image = image
+                self.image_monitor_queue.put((f'{part_name}_no_mask.jpg', masked_image))
+
+            cropped_image = masked_image[y:y+h, x:x+w]
+            rotated_image = self.rotate_image(cropped_image, angle)
+            
+            if SS.capture_signal_dict["inspection"]:  # 분류 검사 이미지 저장
+                classification_image_save_path = f"{self.classification_image_save_base_path}/{SS.current_date}/{SS.model_name}/{part_name}"
+                self.image_save_queue.put((classification_image_save_path, rotated_image))
+            
+            self.image_monitor_queue.put((f'{part_name}_classi_inspection.jpg', rotated_image))
+            label, amount = CL.classification(rotated_image)
+            print(label, amount)
+            
+            if 'OK' not in label.upper():
+                if SS.capture_signal_dict["ng"]:
+                    ng_image_save_path = f"{self.ng_image_save_base_path}/classification/{SS.current_date}/{SS.model_name}/{part_name}"
+                    self.image_save_queue.put((ng_image_save_path, rotated_image))
+
+                if self.recent_image_send_count[part_name]['NG'] < 2:  # NG 2장 전송
+                    SS.send_queue.put(('msg', f'recent:ng:{part_name}:{label}'))
+                    SS.send_queue.put(('image', rotated_image))
+                    self.recent_image_send_count[part_name]['NG'] += 1
+            else:
+                if self.recent_image_send_count[part_name]['OK'] < 1:  # OK 1장 전송
+                    SS.send_queue.put(('msg', f'recent:ok:{part_name}:{label}'))
+                    SS.send_queue.put(('image', rotated_image))
+                    self.recent_image_send_count[part_name]['OK'] += 1
+
+            self.inspection_result_dict[part_name].append({
+                'image': ori_image,
+                'coords': (x, y, w, h),
+                'label': label,
+                'amount': amount
+            })
+    
+    def analysis_result(self):
+        """검사 결과 분석"""
+        final_results = {}
+        
+        print(f"\n{'='*54}\n{'검사 결과 종합':^54}\n{'='*54}")
+        
+        # 각 파트별로 개별 테이블 생성
+        try :
+            # 1. 디텍션 검사 결과 먼저 확인
+            if SS.detection_use and self.ng_name == 'detection':
+                final_results['detection'] = {
+                    'result': 'NG',
+                    'ng_type': 'DETECTION',
+                    'ng_type_name': '각인 검사 불량',
+                    'ng_image': self.det_ng_image
+                }
+                print(f"\n[detection]")
+                print("-" * 54)
+                print("각인 검사 결과: NG")
+                print("="*54)
+                return final_results
+            
+            # 2. 분류 검사 결과 확인
+            for part_name, results in self.inspection_result_dict.items():
+                if results == []:  # 검사 오류로 검사 결과가 없는 경우
+                    final_results[part_name] = {
+                        'result': 'NG',
+                        'ng_type': 'error',
+                        'ng_type_name': '검사 오류',
+                        'ng_image': None
+                    }
+                    return final_results
+
+                print(f"\n[{part_name}]")
+                print("-" * 54)
+                
+                # 헤더 출력
+                headers = ["#", "label", "amout", "consecutive", "cumulative"]
+                
+                # 데이터 준비
+                table_data = []
+                label_counts = {}
+                consecutive_counts = {}
+                ng_frames = {}
+                current_label = None
+                current_count = 0
+                
+                for frame_idx, result in enumerate(results):
+                    row_data = [f"{frame_idx+1:2d}"]
+                    
+                    if result['label'] in SS.label_ng_conditions:
+                        amount_limit = SS.label_ng_conditions[result['label']][1]
+                        
+                        if result['amount'] > amount_limit:
+                            label_counts[result['label']] = label_counts.get(result['label'], 0) + 1
+                            if result['label'] not in ng_frames:
+                                ng_frames[result['label']] = []
+                            ng_frames[result['label']].append((frame_idx, result['image'], result['coords']))
+                            
+                            if result['label'] == current_label:
+                                current_count += 1
+                            else:
+                                current_count = 1
+                            
+                            consecutive_counts[result['label']] = max(consecutive_counts.get(result['label'], 0), current_count)
+                            row_data.extend([f"{result['label']}*", f"{result['amount']:3d}*", f"{current_count}", f"{label_counts[result['label']]}"])
+                        else:
+                            current_count = 0
+                            row_data.extend([result['label'], f"{result['amount']:3d}", "0", str(label_counts.get(result['label'], 0))])
+                        
+                        current_label = result['label']
+                    else:
+                        current_label = None
+                        current_count = 0
+                        row_data.extend([result['label'], f"{result['amount']:3d}", "-", "-"])
+                    
+                    table_data.append(row_data)
+                
+                # 테이블 출력
+                print(tabulate(table_data, headers=headers, tablefmt="simple"))
+                
+                # 파트별 최종 판정
+                final_ng = None
+                ng_image = None
+                ng_coords = None
+                
+                for label, counts in label_counts.items():
+                    if label in SS.label_ng_conditions:
+                        name, _, consec_limit, total_limit = SS.label_ng_conditions[label]
+                        max_consec = consecutive_counts.get(label, 0)
+                        if max_consec >= consec_limit or counts >= total_limit:
+                            final_ng = label
+                            frame_idx = ng_frames[label][0][0]  # 첫 번째 불량 프레임의 인덱스
+                            ng_image = results[frame_idx]['image']  # 해당 프레임의 이미지
+                            ng_coords = results[frame_idx]['coords']  # 해당 프레임의 좌표
+                            ng_image = self.make_ng_image(ng_image, ng_coords)  # 불량 영역 표시
+                            ng_image = self.make_show_image(ng_image)
+                            break
+                
+                final_results[part_name] = {
+                    'result': 'NG' if final_ng else 'OK',
+                    'ng_type': final_ng,
+                    'ng_type_name': SS.label_ng_conditions[final_ng][0] if final_ng else None,
+                    'ng_image': ng_image if ng_image is not None else None
+                }
+                
+                # 파트별 판정 결과 출력
+                print(f"\n판정 결과: ", end="")
+                if final_ng:
+                    ng_name = final_results[part_name]['ng_type_name']
+                    print(f"NG - {final_ng} ({ng_name})")
+                else:
+                    print("OK")
+                print("\n" + "="*54)
+            
+            return final_results
+
+        except:
+            LM.log_print(f"[Analysis] Analysis Result Error: {traceback.format_exc()}")
+            return {}
+    
+    def make_ng_image(self, image, coords):
+        """이미지에 불량 좌표 표시"""
+        x, y, w, h = coords
+        image = cv2.rectangle(image.copy(), (x, y), (x+w, y+h), (41, 41, 252), 2)
+        return image
+
+    def make_show_image(self, image):
+        """출력 이미지 좌표로 이미지 잘라내기"""
+        coord = SS.show_coord
+        x, y, w, h = coord[0], coord[1], coord[2], coord[3]
+        show_image = image[y:y+h, x:x+w]  
+        show_image = cv2.resize(show_image, (391, 290))
+        return show_image
+    
+    def send_result(self, result):
+        """검사 결과 전송
+        1. critical NG list에 있는 불량이 있는지 먼저 확인
+        2. critical NG가 없다면 첫 번째 일반 NG 확인
+        3. 모든 NG가 없다면 OK 전송
+        """
+        final_part = None
+        final_result = 'OK'
+        final_image = None
+
+        # 1. Critical NG 찾기
+        for part_name, part_result in result.items():
+            if (part_result['result'] == 'NG' and part_result['ng_type'] in SS.critical_ng_list):
+                final_part = part_name
+                final_result = part_result['ng_type']
+                final_image = part_result['ng_image']
+                break
+        
+        # 2. Critical NG가 없는 경우 첫 번째 일반 NG 찾기
+        if final_result == 'OK':
+            for part_name, part_result in result.items():
+                if part_result['result'] == 'NG':
+                    final_part = part_name
+                    final_result = part_result['ng_type']
+                    final_image = part_result['ng_image']
+                    break
+        
+        # 3. 모든 NG가 없는 경우 OK 전송
+        if final_result == 'OK':
+            final_part = 'ALL'
+            final_result = 'OK'
+            final_image = self.ok_image
+
+        # 결과 데이터 전송
+        LM.log_print(f"[SEND] Result: {final_part} - {final_result}")
+        SS.send_queue.put(('msg', f'result:{final_part}:{final_result}'))
+        SS.send_queue.put(('image', final_image))
+
+    def get_disk_usage_percent(self):
+        """특정 경로의 디스크 사용량(%) 조회"""
+        st = os.statvfs('/')
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used_percent = 100 - (free / total * 100)
+        return used_percent
+    
+    def check_and_cleanup(self):
+        """디스크 사용량 체크 후 폴더 삭제"""
+        try:
+            usage_percent = self.get_disk_usage_percent()
+            print(f"[DISK] disk usage: {usage_percent}%")
+            if usage_percent > 80:
+                if any(SS.capture_signal_dict.values()):  # 캡처 신호 중 하나라도 True인 경우에만 False로 설정
+                    SS.capture_signal_dict = {"origin": False, "ng": False, "inspection": False}  # 이미지 저장 신호 모두 False로 설정
+                    LM.log_print("[DISK] Set all values in the Capture Signal Dict to False")
+                
+                if not self.image_save_queue.empty():  # 이미지 저장 큐가 비어있지않으면 삭제 작업 진행X
+                    LM.log_print("[DISK] Cleanup skipped - Image save queue is not empty")
+                    return
+
+                for dir_path in ['Capture', 'log']:
+                    if os.path.exists(dir_path):
+                        try:
+                            subprocess.run(['sudo', 'rm', '-rf', dir_path], check=True)
+                            LM.log_print(f"[DISK] {dir_path} folder deleted")
+                        except:
+                            LM.log_print(f"[DISK] Failed to delete {dir_path}: {traceback.format_exc()}")
+        except Exception as e:
+            LM.log_print(f"[DISK] Disk check and cleanup Error: {traceback.format_exc()}")
+            time.sleep(0.5)
+    
+    def check_gpu_enabled(self):
+        """그래픽카드 사용 가능 여부 확인"""
+        try:
+            gpu_available = tf.test.is_gpu_available()
+            SS.send_queue.put(('msg', f'gpu_available:{gpu_available}'))
+        except Exception as e:
+            LM.log_print(f"[GPU] GPU 확인 중 오류 발생: {e}")
+            SS.send_queue.put(('msg', f'gpu_available:False'))
+    
+    def image_monitor_thread(self):
+        """이미지 모니터링 스레드:
+        폴더에 이미지를 저장해서 유저가 이미지 실시간 확인""" 
+        while True:
+            if not self.image_monitor_queue.empty():
+                try:
+                    file_name, image = self.image_monitor_queue.get()
+
+                    if not os.path.isdir('monitor'):
+                        os.makedirs('monitor')
+                
+                    cv2.imwrite(f'monitor/{file_name}', image)
+                    # print(f"[ImageMonitor] {file_name} 저장 완료")
+                except:
+                    LM.log_print(f"[ImageMonitor] Image Monitor Thread Error: {traceback.format_exc()}")
+            else:
+                time.sleep(0.1)
+
+    def image_save_thread(self):
+        """이미지 저장 스레드"""
+        MAX_RETRIES = 3  # 최대 재시도 횟수
+        
+        while True:
+            if not self.image_save_queue.empty():
+                try:
+                    save_path, image = self.image_save_queue.get()
+                    retry_count = 0
+                    
+                    while retry_count < MAX_RETRIES:
+                        try:
+                            os.makedirs(save_path, exist_ok=True)
+                            
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                            file_name = f"{timestamp}.jpg"
+                            
+                            full_path = os.path.join(save_path, file_name)
+                            cv2.imwrite(full_path, image)
+                            # print(f"[ImageSave] {file_name} 저장 완료")
+                            break
+                            
+                        except OSError as e:
+                            retry_count += 1
+                            if retry_count >= MAX_RETRIES:
+                                LM.log_print(f"[SAVE] Failed to save image after {MAX_RETRIES} attempts. Error: {str(e)}")
+                                break
+                            LM.log_print(f"[SAVE] Attempt {retry_count}/{MAX_RETRIES} failed: {str(e)}")
+                            time.sleep(0.5)
+                            
+                except Exception as e:
+                    LM.log_print(f"[SAVE] Image Save Thread Error: {str(e)}\n{traceback.format_exc()}")
+                    time.sleep(0.5)
+            else:
+                time.sleep(0.1)
+
+    def code_update(self):
+        """Client.py 코드 업데이트"""
+        def on_rm_error(func, path, exc_info):
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        
+        LM.log_print('[UPDATE] Client code update order')
+        repo_name = "Client"
+        git_url = f'https://github.com/KRThor/{repo_name}.git'
+        tmp_dir = "update_tmp"
+        try:
+            # 1. 임시 폴더에 다운로드
+            if os.path.exists(tmp_dir):
+                shutil.rmtree(tmp_dir, onerror=on_rm_error)
+            git.Repo.clone_from(git_url, tmp_dir)
+
+            # 2. 새 Client.py가 정상적으로 존재하는지 검증
+            new_client_path = os.path.join(tmp_dir, "Client.py")
+            if not os.path.exists(new_client_path):
+                LM.log_print(f"[UPDATE] {repo_name} code not found")
+                return
+
+            # 3. 기존 Client.py 백업
+            if os.path.exists('Client_.py'):
+                os.remove('Client_.py')
+            if os.path.exists('Client.py'):
+                os.rename('Client.py', 'Client_.py')
+
+            # 4. 새 Client.py로 교체
+            shutil.move(new_client_path, 'Client.py')
+            shutil.rmtree(tmp_dir, onerror=on_rm_error)
+
+            py_compile.compile("Client.py", cfile="Client.pyc")
+            LM.log_print(f"[UPDATE] {repo_name} code compile success")
+        except Exception as e:
+            LM.log_print(f"[UPDATE] {repo_name} code update failed: {traceback.format_exc()}")
 
 
 if __name__ == "__main__":
-    Socket_main = SocketCommunication()
-
-    ODC = ObjectDetectImg()
-    EFFI = EfficientNetIMG()
-
-    CTH = cameraRTSP()
-    CTH.daemon = True
-    CTH.start()
-
-    MQ = MQueue()
-    proc = Process(target=SaveImages, args=(MQ,))
-    proc.daemon = True
-    proc.start()
-
-    threading.Thread(target=CTH.remove_forder, daemon=True).start() # OH
+    mode = 'game'  # war or game
+    LM = LogManager()
+    SS = SocketServer()
+    threading.Thread(target=SS.send_thread, daemon=True).start()
+    GC = GalaxyCamera(mode, LM)
+    threading.Thread(target=GC.run, daemon=True).start()
+    CL = Classification(LM)
+    DT = Detection(LM)
+    HW = HardWork()
+    threading.Thread(target=HW.inspection_thread, daemon=True).start()
+    Process(target=HW.image_monitor_thread, daemon=True).start()
+    Process(target=HW.image_save_thread, daemon=True).start()
     
     while True:
         try:
-            Socket_main.connectTry()
-            Socket_main.run()
+            SS.connect_to_server()
+            SS.run()
             time.sleep(1)
-        except Exception as ex:
-            print(ex)  # [Errno 111] Connection refused
+        except:
+            LM.log_print(f"[MAIN] Main Thread Error: {traceback.format_exc()}")
             time.sleep(1)
-            print("Notice : [Socket Disconnected. Connect Retry]\n")
-            logger.info(f"Warning : 소켓 프로그램 종료, 재실행중 - {ex}")
